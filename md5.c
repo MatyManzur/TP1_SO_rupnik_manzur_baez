@@ -27,12 +27,14 @@ int main(int argc, char* argv[])
         slavepids[i] = fork();
         if(slavepids[i] == -1)
         {
-            //error con el fork
+            perror("Forks in md5");
+            exit(1);
         }
         if(slavepids[i] == 0)
         {
             //estamos en el slave, setear los fd del pipe
             //si hacemos exec no hace falta salir del for porque ripea este codigo
+            //hacer chequeo si hacemos exec de que no siga el codigo, y si sigio tirar error
         }
         //seguimos en el master, setear los fd del pipe
     }
