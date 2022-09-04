@@ -7,11 +7,15 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <semaphore.h>
 
 #include <sys/select.h>
 #include <sys/time.h>
 
+#define SHM_NAME "/oursharedmemory"
+#define SHM_SIZE 1024
 #define SLAVE_COUNT 10
+#define SEMPAHORE_NAME "/mysem"
 
 int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2]);
 
