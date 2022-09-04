@@ -17,7 +17,7 @@ int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2]);
 
 int main(int argc, char* argv[])
 {
-    if(argc!=2)
+    if(argc<2)
     {
         fprintf(stderr, "Error in argument count. Must be one.\n");
         exit(1);
@@ -86,6 +86,42 @@ int main(int argc, char* argv[])
     fd_set * exceptFds; // No se usa pero para evitar errores al mandar un NULL
     FD_ZERO(exceptFds);
 
+
+        // parte de shared memory
+    int fdsharedmem;
+    void * addr_mapped;
+    if((fdsharedmem=shm_open(SHM_NAME,O_CREAT|O_RDWR, S_IRUSR|S_IWUSR))==-1) perror("Error opening Shared Memory"); // no me acuerdo qué era el último argumento
+    if(ftruncate(fdsharedmem, SHM_SIZE)==-1) perror("Error trying to ftruncate");
+    if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
+    char* ptowrite = (char*) addr_mapped;
+
+
+    // parte de select
+    int fileCounter = 1;
+    // así sabemos cuándo termina
+    while(fileCounter<argc)
+    {
+        
+    }
+
+    // esta es la parte de navegación del directorio
+
+    /* Creo que no hace falta, directamente te pasan los archivos
+    DIR * dirp = opendir(argv[1]);
+    char path[64];
+    path[0] = '\0';
+
+    struct dirent * myDirent;
+    struct stat sb;
+
+    while(myDirent=readdir(dirp)!=NULL){
+        if(!(strcmp(myDirent->d_name,"..")==0 || strcmp(myDirent->d_name,".")==0))
+        {
+            stat(myDirent->d_name,&sb);
+        }
+    }
+    closedir(dirp);
+    */
 
     //hacer lo mismo que con el tree (esperamos a que lo corrijan? lo corregiran?)
     //pero en vez de printearlo se lo pasamos al slave que esté desocupado -> usar select() para ver eso
