@@ -59,8 +59,9 @@ int main(int argc, char* argv[])
                     exit(1);
                 }
             }
-
-
+            execl("./md5Slave","./md5Slave",NULL);
+            perror("Error in executing Slave");
+            exit(1);
             //si hacemos exec no hace falta salir del for porque ripea este codigo, si dio error el exec, hacemos return
             //hacer chequeo si hacemos exec de que no siga el codigo, y si sigio tirar error
         }
@@ -70,11 +71,18 @@ int main(int argc, char* argv[])
             perror("Error in closure of pipes");
             exit(1);
         }
-
     }
 
     //argv[1] -> directorio
+    //creamos los sets que select va a usar para monitorear
+    int writefds[SLAVE_COUNT]={0};
+    int readfds[SLAVE_COUNT]={0};
 
+    for (int k = 0; k<SLAVE_COUNT ; ++k)//Seteamos los fds con los pipes correspondientes
+    {
+        writefds[k]=pipefds[2*k][1];
+        readfds[k]=pipefds[2*k+1][0];
+    }
     //hacer lo mismo que con el tree (esperamos a que lo corrijan? lo corregiran?)
     //pero en vez de printearlo se lo pasamos al slave que esté desocupado -> usar select() para ver eso
 
