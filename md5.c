@@ -8,8 +8,12 @@
 #include <fcntl.h>
 #include <stdlib.h>
 
+#include <sys/select.h>
+#include <sys/time.h>
+
 #define SLAVE_COUNT 10
 
+int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2]);
 
 int main(int argc, char* argv[])
 {
@@ -75,17 +79,40 @@ int main(int argc, char* argv[])
 
     //argv[1] -> directorio
     //creamos los sets que select va a usar para monitorear
-    int writefds[SLAVE_COUNT]={0};
-    int readfds[SLAVE_COUNT]={0};
+    fd_set * writeFds;
+    FD_ZERO(writeFds);
+    fd_set * readFds;
+    FD_ZERO(readFds);
+    fd_set * exceptFds; // No se usa pero para evitar errores al mandar un NULL
+    FD_ZERO(exceptFds);
 
-    for (int k = 0; k<SLAVE_COUNT ; ++k)//Seteamos los fds con los pipes correspondientes
-    {
-        writefds[k]=pipefds[2*k][1];
-        readfds[k]=pipefds[2*k+1][0];
-    }
+
     //hacer lo mismo que con el tree (esperamos a que lo corrijan? lo corregiran?)
     //pero en vez de printearlo se lo pasamos al slave que esté desocupado -> usar select() para ver eso
 
 
     return 0;
+}
+
+
+
+//Setea los file descriptor writefds y readfds a los valores de los pipes, tambien calcula el nfds y lo devuelve
+//Si los file descriptors estan en -1 entonces no los setea pues estan cerrados
+int setWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2])
+{
+    int nfds=0;
+    for (int i = 0; i <SLAVE_COUNT; ++i)
+    {
+        if(pipeFds[2*i][1]!=-1)
+        {
+            FD_SET(pipeFds[2*i][1],writeFds);
+            if(pipeFds[2*i][1]>=nfds) nfds=pipeFds[2*i][1];
+        }
+        if(pipeFds[2*i+1][0]!=-1)
+        {
+            FD_SET(pipeFds[2*i+1][0], readFds);
+            if(pipeFds[2*i+1][0]>=nfds) nfds=pipeFds[2*i+1][0];
+        }
+    }
+    return nfds;
 }
