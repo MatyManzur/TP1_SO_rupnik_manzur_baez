@@ -10,20 +10,28 @@
 
 #define SLAVE_COUNT 10
 
+
 int main(int argc, char* argv[])
 {
     if(argc!=2)
     {
-        fprintf(stderr, "Cantidad de argumentos incorrecta! Debe ser uno.\n");
+        fprintf(stderr, "Error in argument count. Must be one.\n");
         exit(1);
     }
 
     int slavepids[SLAVE_COUNT] = {0};
+    int pipefds[SLAVE_COUNT*2][2]; //por cada slave tenemos un pipe de ida (2*i) y un pipe de vuelta (2*i+1),
+                                    // cada uno tiene dos file descriptors [0] (salida del pipe) y [1] (entrada del pipe)
 
     //Por cada slave
     for(int i=0 ; i<SLAVE_COUNT ; i++)
     {
-        //crear dos pipes acá antes de separarse
+        //Creamos dos pipes antes de hacer el fork
+        if(pipe(pipefds[2*i])!=0 || pipe(pipefds[2*i+1])!=0)
+        {
+            perror("Error in creation of pipes");
+            exit(1);
+        }
         slavepids[i] = fork();
         if(slavepids[i] == -1)
         {
@@ -33,10 +41,36 @@ int main(int argc, char* argv[])
         if(slavepids[i] == 0)
         {
             //estamos en el slave, setear los fd del pipe
-            //si hacemos exec no hace falta salir del for porque ripea este codigo
+
+            dup2(pipefds[2*i][0], STDIN_FILENO); //cambiamos el stdin por la salida del pipe de ida
+            dup2(pipefds[2*i+1][1], STDOUT_FILENO); //cambiamos el stdout por la entrada del pipe de vuelta
+
+            //de este "i" tenemos que cerrar los 4 fds, y de los "i" anteriores tenemos que cerrar los dos que no cerro el master anteriores
+            if(close(pipefds[2*i][0])!=0 || close(pipefds[2*i+1][1])!=0)
+            {
+                perror("Error in closure of pipes");
+                exit(1);
+            }
+            for(int j=0; j<=i; j++)
+            {
+                if(close(pipefds[2*j][1])!=0 || close(pipefds[2*j+1][0])!=0)
+                {
+                    perror("Error in closure of pipes");
+                    exit(1);
+                }
+            }
+
+
+            //si hacemos exec no hace falta salir del for porque ripea este codigo, si dio error el exec, hacemos return
             //hacer chequeo si hacemos exec de que no siga el codigo, y si sigio tirar error
         }
         //seguimos en el master, setear los fd del pipe
+        if(close(pipefds[2*i][0])!=0 || close(pipefds[2*i+1][1])!=0)
+        {
+            perror("Error in closure of pipes");
+            exit(1);
+        }
+
     }
 
     //argv[1] -> directorio
