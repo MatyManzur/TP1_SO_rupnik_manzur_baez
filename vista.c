@@ -11,7 +11,7 @@
 
 
 //deberían compartir un .h con estas definiciones
-#define SHM_NAME "/oursharedmemory"
+#define SHM_NAME "/oursharedmemory" 
 #define SHM_SIZE 1024
 #define SEMPAHORE_NAME "/mysem"
 
