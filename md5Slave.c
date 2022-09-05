@@ -15,8 +15,14 @@ int main(int argc, char* argv[])
         perror("Error in allocating memory for filename"); //nose si malloc hace lo de errno
         exit(1);
     }
+    //DEBUG
+    fprintf(stderr,"DEBUG SLAVE: Slave created\n");
+    //-----
     while((c = getchar()) != EOF)
     {
+        //DEBUG
+        fprintf(stderr,"DEBUG SLAVE: Read '%c'\n", c);
+        //-----
         filename[i++] = c;
         if(size<i) size = i;
         if(size%BLOCK==0 && size>0)
@@ -25,6 +31,9 @@ int main(int argc, char* argv[])
         }
         if(c==0)
         {
+            //DEBUG
+            fprintf(stderr,"DEBUG SLAVE: Received from master: %s\n", filename);
+            //-----
             //terminó de leer el nombre del archivo, en file name tenemos el nombre con un \0 al final
             int pid = fork();
             if(pid==0)
@@ -64,6 +73,9 @@ int main(int argc, char* argv[])
             i=0; //reseteamos el string de filename, para empezar devuelta
         }
     }
+    //DEBUG
+    fprintf(stderr,"DEBUG SLAVE: Found EOF (pipe closed)\n");
+    //-----
     //cuando c==EOF, es porque el master cerró el pipe => terminamos
     free(filename);
     return 0;
