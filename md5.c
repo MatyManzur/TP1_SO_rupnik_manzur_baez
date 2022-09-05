@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <semaphore.h>
-
+#include <string.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -53,10 +53,10 @@ int main(int argc, char* argv[])
         if (slavepids[i] == 0)
         {
             //estamos en el slave, setear los fd del pipe
-
+        
             dup2(pipefds[2 * i][0], STDIN_FILENO); //cambiamos el stdin por la salida del pipe de ida
             dup2(pipefds[2 * i + 1][1], STDOUT_FILENO); //cambiamos el stdout por la entrada del pipe de vuelta
-
+            
             //de este "i" tenemos que cerrar los 4 fds, y de los "i" anteriores tenemos que cerrar los dos que no cerro el master anteriores
             if (close(pipefds[2 * i][0]) != 0 || close(pipefds[2 * i + 1][1]) != 0)
             {
@@ -128,7 +128,7 @@ int main(int argc, char* argv[])
     int writeSlave;
     int writtenFiles = 1; //iteramos por los archivos recibidos por argumento
     int readFiles = 1;
-    while(writtenFiles<argc && readFiles<argc)
+    while(readFiles<argc)
     {
         readSlave = -1; //inicialmente, no encontramos ningun slave para escribir ni para leer (=-1)
         writeSlave = -1;
@@ -140,7 +140,7 @@ int main(int argc, char* argv[])
         }
         for (int i = 0; i <SLAVE_COUNT && (readSlave==-1 || writeSlave==-1); i++)
         {
-            if(slaveReady[i] && FD_ISSET(pipefds[2*i][1],&writeFds))
+            if(slaveReady[i] && FD_ISSET(pipefds[2*i][1],&writeFds)&& writtenFiles<argc)
             {
                 writeSlave=i;
             }
@@ -157,17 +157,23 @@ int main(int argc, char* argv[])
         {
             //Escribimos en el pipe de uno de los slaves que está listo
             FILE * writePipeFile = fdopen(pipefds[2*writeSlave][1],"w");
+            setvbuf(writePipeFile, NULL, _IONBF, 0);
             if(writePipeFile==NULL)
             {
                 perror("Error in writing on pipe");
                 exit(1);
             }
             //DEBUG
-            fprintf(stderr,"DEBUG: Sending to slave %d : %s\n", writeSlave, argv[fileCounter]);
+            fprintf(stderr,"DEBUG: Sending to slave %d : %s\n", writeSlave, argv[writtenFiles]);
             //-----
-            fprintf(writePipeFile,"%s",argv[fileCounter]);
+            int printValue;
+            if((printValue=fwrite(argv[writtenFiles],1,strlen(argv[writtenFiles])+1,writePipeFile))<=0){
+                perror("Error in writing in pipe");
+                exit(1);
+            }
+            writtenFiles++;
+            printf("%d\n",printValue);
             slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
-            fileCounter++;
         }
 
         if(readSlave>=0)
@@ -185,6 +191,7 @@ int main(int argc, char* argv[])
             fprintf(stderr,"DEBUG: Read from slave %d : %s\n", readSlave, s);
             //-----
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
+            readFiles++;
         }
     }
 
@@ -250,6 +257,8 @@ int main(int argc, char* argv[])
 int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2])
 {
     int nfds=0;
+    FD_ZERO(writeFds);
+    FD_ZERO(readFds);
     for (int i = 0; i <SLAVE_COUNT; ++i)
     {
         if(pipeFds[2*i][1]!=-1)

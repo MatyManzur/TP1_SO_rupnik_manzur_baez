@@ -18,7 +18,7 @@ int main(int argc, char* argv[])
     //DEBUG
     fprintf(stderr,"DEBUG SLAVE: Slave created\n");
     //-----
-    while((c = getchar()) != EOF)
+    while(read(STDIN_FILENO,&c,1) != 0)
     {
         //DEBUG
         fprintf(stderr,"DEBUG SLAVE: Read '%c'\n", c);
@@ -29,7 +29,7 @@ int main(int argc, char* argv[])
         {
             filename = realloc(filename, size + BLOCK);
         }
-        if(c==0)
+        if(c=='\0')
         {
             //DEBUG
             fprintf(stderr,"DEBUG SLAVE: Received from master: %s\n", filename);
