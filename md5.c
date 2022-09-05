@@ -102,9 +102,9 @@ int main(int argc, char* argv[])
     char* ptowrite = (char*) addr_mapped;
     ptowrite+=sizeof(sem_t)*2; //Hay que chequear esto, pero en teoría el sem_t ocupa 16 bytes
 
-    sem_t *sem = (sem_t *) addr_mapped;
-    sem_t *sem2 = sem+1;
-    if(sem_init(sem,SEM_BETWEEN_PROCESSES,INITIAL_SEM1_VALUE)==-1 || sem_init(sem2,SEM_BETWEEN_PROCESSES,INITIAL_SEM2_VALUE)==-1)
+    sem_t *sem1 = (sem_t *) addr_mapped;
+    sem_t *sem2 = sem1+1;
+    if(sem_init(sem1,SEM_BETWEEN_PROCESSES,INITIAL_SEM1_VALUE)==-1 || sem_init(sem2,SEM_BETWEEN_PROCESSES,INITIAL_SEM2_VALUE)==-1)
     {
         perror("Error initiating a semaphore");
         exit(1);
@@ -113,10 +113,40 @@ int main(int argc, char* argv[])
 
     // parte de select
     int fileCounter = 1;
-    // así sabemos cuándo termina
-    while(fileCounter<argc)
+
+    int slaveReady[SLAVE_COUNT];
+    for (int i = 0; i <SLAVE_COUNT; i++)//Todos los slaves pueden recibir archivos, estan libres
     {
-        
+        slaveReady[i]=1;
+    }
+    
+    // así sabemos cuándo termina
+    int readSlave;
+    int writeSlave;
+    while(fileCounter<argc)
+    {   readSlave=-1;
+        writeSlave=-1;
+        if(select(setWriteReadFds(writeFds,readFds,pipefds)+1,readFds,writeFds,exceptFds,NULL)==-1){
+            perror("Select Error");
+            exit(1);
+        }
+        for (int i = 0; i <SLAVE_COUNT && (readSlave!=-1 || writeSlave!=-1); i++)
+        {
+            if(slaveReady[i])
+            {
+                writeSlave=i;
+            }else{
+                if(FD_ISSET(pipefds[2*i+1][0],readFds)!=0)
+                {
+                    readSlave=i;
+                }
+            }
+        }
+        fprintf(pipefds[2*writeSlave][1],"%s",argv[fileCounter]);
+        char s[128];
+        FILE * file=fdopen(pipefds[2*readSlave+1][0],"r");
+        fgets(s,128,file);
+        printf("%s",s);
     }
 
     // esta es la parte de navegación del directorio
