@@ -1,46 +1,43 @@
+#define _BSD_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <dirent.h>
+#include <string.h>
 
-#define BLOCK 20
+#define MD5_COMMAND "md5sum "
+#define MD5_COMMAND_LENGTH 7
 
 int main(int argc, char* argv[])
 {
-    int c = 0;
-    int i = 0, size = 0;
-    char* filename = malloc(BLOCK);
-    if(filename==NULL)
-    {
-        perror("Error in allocating memory for filename"); //nose si malloc hace lo de errno
-        exit(1);
-    }
+    char c = 0;
+    int i = 0;
+    char filename[NAME_MAX];
     //DEBUG
-    fprintf(stderr,"DEBUG SLAVE: Slave created\n");
+        fprintf(stderr,"DEBUG SLAVE: Slave created\n");
     //-----
-    while(read(STDIN_FILENO,&c,1) != 0)
+    ssize_t readReturnValue;
+    while((readReturnValue = read(STDIN_FILENO,&c,1)) > 0) //si devuelve 0 es porque encontro un EOF
     {
-        //DEBUG
-        fprintf(stderr,"DEBUG SLAVE: Read '%c'\n", c);
-        //-----
         filename[i++] = c;
-        if(size<i) size = i;
-        if(size%BLOCK==0 && size>0)
+        if(i>=NAME_MAX)
         {
-            filename = realloc(filename, size + BLOCK);
+            fprintf(stderr,"File name too long! : %s\n", filename);
+            exit(1);
         }
         if(c=='\0')
         {
             //DEBUG
-            fprintf(stderr,"DEBUG SLAVE: Received from master: %s\n", filename);
+            fprintf(stderr,"DEBUG SLAVE: Received %s from master\n", filename);
             //-----
             //terminó de leer el nombre del archivo, en file name tenemos el nombre con un \0 al final
             int pid = fork();
             if(pid==0)
             {
                 //estamos en el hijo
-                char command[size + BLOCK];
-                sprintf(command, "md5sum %s", filename);
+                char command[NAME_MAX + MD5_COMMAND_LENGTH] = MD5_COMMAND;
+                strncat(command, filename, NAME_MAX + MD5_COMMAND_LENGTH);
                 if(system(command)!=0)
                 {
                     perror("Error occurred while creating or executing md5sum process");
@@ -48,7 +45,6 @@ int main(int argc, char* argv[])
                 }
                 //el md5sum hereda los filedescriptors de este slave, por lo tanto cuando escriba
                 //en lo que piensa que es stdout, se estará comunicando con el master directamente
-
                 return 0;
             }
             if(pid==-1)
@@ -56,7 +52,7 @@ int main(int argc, char* argv[])
                 perror("Error in creating md5sum process");
                 exit(1);
             }
-            //estamos en el padre
+            //estamos en el padre, esperamos a que termine md5sum
             int status = 0;
             if(waitpid(pid, &status, WUNTRACED | WCONTINUED)==-1) // esperamos a que termine el md5sum
             {
@@ -73,11 +69,15 @@ int main(int argc, char* argv[])
             i=0; //reseteamos el string de filename, para empezar devuelta
         }
     }
+    if(readReturnValue == -1) //si read dio error
+    {
+        perror("Error in reading from pipe");
+        exit(1);
+    }
+    //si estamos acá, es porque encontró un EOF (el master cerro el pipe)
     //DEBUG
-    fprintf(stderr,"DEBUG SLAVE: Found EOF (pipe closed)\n");
+        fprintf(stderr,"DEBUG SLAVE: Found EOF (pipe closed)\n");
     //-----
-    //cuando c==EOF, es porque el master cerró el pipe => terminamos
-    free(filename);
     return 0;
 }
 

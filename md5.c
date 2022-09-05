@@ -126,9 +126,9 @@ int main(int argc, char* argv[])
     // vamos a buscar un slave disponible para escribir, y uno que ya esté listo para leer el resultado
     int readSlave;
     int writeSlave;
-    int writtenFiles = 1; //iteramos por los archivos recibidos por argumento
-    int readFiles = 1;
-    while(readFiles<argc)
+    int writtenFiles = 1;
+    int readFiles = 1; //iteramos por los archivos recibidos por argumento
+    while(readFiles < argc)
     {
         readSlave = -1; //inicialmente, no encontramos ningun slave para escribir ni para leer (=-1)
         writeSlave = -1;
@@ -155,25 +155,37 @@ int main(int argc, char* argv[])
         //si pasamos por todos y siguen valiendo -1 es porque no había ninguno disponible
         if(writeSlave>=0)
         {
-            //Escribimos en el pipe de uno de los slaves que está listo
-            FILE * writePipeFile = fdopen(pipefds[2*writeSlave][1],"w");
-            setvbuf(writePipeFile, NULL, _IONBF, 0);
-            if(writePipeFile==NULL)
+            //Obtenemos informacion del proximo archivo a procesar
+            struct stat statbuf;
+            stat(argv[writtenFiles], &statbuf);
+            //si no es un directorio, hacemos lo que tenemos que hacer
+            if(!S_ISDIR(statbuf.st_mode))
             {
-                perror("Error in writing on pipe");
-                exit(1);
+                //Escribimos en el pipe de uno de los slaves que está listo
+                FILE * writePipeFile = fdopen(pipefds[2*writeSlave][1],"w");
+                setvbuf(writePipeFile, NULL, _IONBF, 0);
+                if(writePipeFile==NULL)
+                {
+                    perror("Error in writing on pipe");
+                    exit(1);
+                }
+                //DEBUG
+                fprintf(stderr,"DEBUG: Sending to slave %d : %s\n", writeSlave, argv[writtenFiles]);
+                //-----
+                size_t printValue = fwrite(argv[writtenFiles],1,strlen(argv[writtenFiles])+1,writePipeFile);
+                if(printValue<=0)
+                {
+                    perror("Error in writing in pipe");
+                    exit(1);
+                }
+                slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
+                //fclose(writePipeFile);
             }
-            //DEBUG
-            fprintf(stderr,"DEBUG: Sending to slave %d : %s\n", writeSlave, argv[writtenFiles]);
-            //-----
-            int printValue;
-            if((printValue=fwrite(argv[writtenFiles],1,strlen(argv[writtenFiles])+1,writePipeFile))<=0){
-                perror("Error in writing in pipe");
-                exit(1);
+            else //si es un directorio, md5sum no anda => lo salteamos
+            {
+                readFiles++; //incrementamos readFiles porque sino nos va a faltar uno en la cuenta
             }
-            writtenFiles++;
-            printf("%d\n",printValue);
-            slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
+            writtenFiles++; //sea directorio o no, aumentamos el writtenFiles (ya sea porque lo enviamos a un slave, o porque lo salteamos)
         }
 
         if(readSlave>=0)
@@ -192,6 +204,7 @@ int main(int argc, char* argv[])
             //-----
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
             readFiles++;
+            //fclose(readPipeFile);
         }
     }
 
