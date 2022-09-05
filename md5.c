@@ -15,7 +15,8 @@
 #define SHM_NAME "/oursharedmemory"
 #define SHM_SIZE 1024
 #define SLAVE_COUNT 10
-#define SEMPAHORE_NAME "/mysem"
+#define INITIAL_SEM_VALUE 1
+#define SEM_BETWEEN_PROCESSES 1
 
 int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2]);
 
@@ -98,6 +99,14 @@ int main(int argc, char* argv[])
     if(ftruncate(fdsharedmem, SHM_SIZE)==-1) perror("Error trying to ftruncate");
     if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
     char* ptowrite = (char*) addr_mapped;
+    ptowrite+=16; //Hay que chequear esto, pero en teoría el sem_t ocupa 16 bytes
+
+    sem_t *semaphore = (sem_t *) addr_mapped;
+    if((semaphore=sem_init(semaphore,SEM_BETWEEN_PROCESSES,1))==SEM_FAILED)
+    {
+        perror("Error initiating a semaphore");
+        exit(1);
+    }
 
 
     // parte de select

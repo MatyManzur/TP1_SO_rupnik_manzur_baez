@@ -13,7 +13,7 @@
 //deberían compartir un .h con estas definiciones
 #define SHM_NAME "/oursharedmemory" 
 #define SHM_SIZE 1024
-#define SEMPAHORE_NAME "/mysem"
+
 
 int main(int argc, char* argv[])
 {
@@ -22,17 +22,16 @@ int main(int argc, char* argv[])
     if((fdsharedmem=shm_open(SHM_NAME,O_RDWR, 0))==-1) perror("Error opening Shared Memory"); // no me acuerdo qué era el último argumento
     if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
     char* ptoread = (char*) addr_mapped;
-
+    ptoread+=16;
     // hay que usar semaforos para leer y escribir
-    // creo que es mejor usar los Named porque no entendí cómo se inicializaban los otros :D (man sem_overview)
+    // creo que es mejor usar los unamed
 
-    sem_t *semaphore;
-    if((semaphore=sem_open(SEMPAHORE_NAME,O_RDWR))==SEM_FAILED)
-    {
-        perror("Error initiating a semaphore");
-        exit(1);
-    }
-    // usamos sem_post, sem_wait, sem_close y sem_unlink
+    sem_t *semaphore = (sem_t *) addr_mapped;
+    
+    // usamos sem_init sem_post, sem_wait, sem_destroy
+    // When the semaphore is no longer required, and before the  memory
+    // in which it is located is deallocated, the semaphore should be destroyed using sem_destroy(3).
+
     while(1)
     {
         sem_wait(semaphore);
