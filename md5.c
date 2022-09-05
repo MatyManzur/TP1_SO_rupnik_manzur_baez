@@ -15,7 +15,8 @@
 #define SHM_NAME "/oursharedmemory"
 #define SHM_SIZE 1024
 #define SLAVE_COUNT 10
-#define INITIAL_SEM_VALUE 1
+#define INITIAL_SEM1_VALUE 1
+#define INITIAL_SEM2_VALUE 0
 #define SEM_BETWEEN_PROCESSES 1
 
 int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2]);
@@ -99,10 +100,11 @@ int main(int argc, char* argv[])
     if(ftruncate(fdsharedmem, SHM_SIZE)==-1) perror("Error trying to ftruncate");
     if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
     char* ptowrite = (char*) addr_mapped;
-    ptowrite+=sizeof(sem_t); //Hay que chequear esto, pero en teoría el sem_t ocupa 16 bytes
+    ptowrite+=sizeof(sem_t)*2; //Hay que chequear esto, pero en teoría el sem_t ocupa 16 bytes
 
-    sem_t *semaphore = (sem_t *) addr_mapped;
-    if(sem_init(semaphore,SEM_BETWEEN_PROCESSES,INITIAL_SEM_VALUE)==-1)
+    sem_t *sem = (sem_t *) addr_mapped;
+    sem_t *sem2 = sem+1;
+    if(sem_init(sem,SEM_BETWEEN_PROCESSES,INITIAL_SEM1_VALUE)==-1 || sem_init(sem2,SEM_BETWEEN_PROCESSES,INITIAL_SEM2_VALUE)==-1)
     {
         perror("Error initiating a semaphore");
         exit(1);
@@ -139,8 +141,11 @@ int main(int argc, char* argv[])
     //hacer lo mismo que con el tree (esperamos a que lo corrijan? lo corregiran?)
     //pero en vez de printearlo se lo pasamos al slave que esté desocupado -> usar select() para ver eso
 
-
-    return 0;
+    if(sem_destroy(sem1) || sem_destroy(sem2)){
+        perror("Error destroying semaphore(s)");
+        exit(1);
+    }
+    return close(fdsharedmem); // quizás haya que usar munmap y/o shm_unlink
 }
 
 
