@@ -30,13 +30,17 @@ int main(int argc, char* argv[])
             if(pid==0)
             {
                 //estamos en el hijo
-                execl("md5sum", "md5sum", filename, NULL);
+                char command[size + BLOCK];
+                sprintf(command, "md5sum %s", filename);
+                if(system(command)!=0)
+                {
+                    perror("Error occurred while creating or executing md5sum process");
+                    exit(1);
+                }
                 //el md5sum hereda los filedescriptors de este slave, por lo tanto cuando escriba
                 //en lo que piensa que es stdout, se estará comunicando con el master directamente
 
-                //si seguimos acá, es porque algo salió mal
-                perror("Error in executing md5sum");
-                exit(1);
+                return 0;
             }
             if(pid==-1)
             {
