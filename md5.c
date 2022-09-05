@@ -99,10 +99,10 @@ int main(int argc, char* argv[])
     if(ftruncate(fdsharedmem, SHM_SIZE)==-1) perror("Error trying to ftruncate");
     if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
     char* ptowrite = (char*) addr_mapped;
-    ptowrite+=16; //Hay que chequear esto, pero en teoría el sem_t ocupa 16 bytes
+    ptowrite+=sizeof(sem_t); //Hay que chequear esto, pero en teoría el sem_t ocupa 16 bytes
 
     sem_t *semaphore = (sem_t *) addr_mapped;
-    if((semaphore=sem_init(semaphore,SEM_BETWEEN_PROCESSES,1))==SEM_FAILED)
+    if(sem_init(semaphore,SEM_BETWEEN_PROCESSES,INITIAL_SEM_VALUE)==-1)
     {
         perror("Error initiating a semaphore");
         exit(1);

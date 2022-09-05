@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
     if((fdsharedmem=shm_open(SHM_NAME,O_RDWR, 0))==-1) perror("Error opening Shared Memory"); // no me acuerdo qué era el último argumento
     if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
     char* ptoread = (char*) addr_mapped;
-    ptoread+=16;
+    ptoread+=sizeof(sem_t);
     // hay que usar semaforos para leer y escribir
     // creo que es mejor usar los unamed
 
