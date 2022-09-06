@@ -21,7 +21,7 @@
 #define INITIAL_SEM2_VALUE 0
 #define SEM_BETWEEN_PROCESSES 1
 
-int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2]);
+int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,FILE* writeFiles[],FILE* readFiles[]);
 
 int main(int argc, char* argv[])
 {
@@ -86,7 +86,24 @@ int main(int argc, char* argv[])
         //DEBUG
         fprintf(stderr,"DEBUG: Pipes for Slave %d created\n", i);
     }
+    FILE * wFiles[SLAVE_COUNT];
+    FILE * rFiles[SLAVE_COUNT];
 
+    for (int i = 0; i <SLAVE_COUNT; i++)
+    {
+        if( ( wFiles[i]=fdopen(pipefds[2*i][1],"w") ) == NULL)
+        {
+            perror("Error in creating Write Files");
+            exit(1);
+        }
+        if( ( rFiles[i]=fdopen(pipefds[2*i+1][0],"r") ) == NULL)
+        {
+            perror("Error in creating Read Files");
+            exit(1);
+        }
+        setvbuf(wFiles[i], NULL, _IONBF, 0); //Desactivamos el buffering del Pipe para que se envie de forma continua
+    }
+    
 
     // inicializacion de shared memory y semáforos
     int fdsharedmem;
@@ -132,7 +149,7 @@ int main(int argc, char* argv[])
     {
         readSlave = -1; //inicialmente, no encontramos ningun slave para escribir ni para leer (=-1)
         writeSlave = -1;
-        int nfds = resetWriteReadFds(&writeFds,&readFds,pipefds);
+        int nfds = resetWriteReadFds(&writeFds,&readFds,wFiles,rFiles);
         if(select(nfds,&readFds,&writeFds,&exceptFds,NULL)==-1)
         {
             perror("Select Error");
@@ -140,13 +157,13 @@ int main(int argc, char* argv[])
         }
         for (int i = 0; i <SLAVE_COUNT && (readSlave==-1 || writeSlave==-1); i++)
         {
-            if(slaveReady[i] && FD_ISSET(pipefds[2*i][1],&writeFds)&& writtenFiles<argc)
+            if(slaveReady[i] && FD_ISSET(fileno(wFiles[i]),&writeFds)&& writtenFiles<argc)
             {
                 writeSlave=i;
             }
             else
             {
-                if(FD_ISSET(pipefds[2*i+1][0],&readFds)!=0)
+                if(FD_ISSET(fileno(rFiles[i]),&readFds)!=0)
                 {
                     readSlave=i;
                 }
@@ -161,18 +178,10 @@ int main(int argc, char* argv[])
             //si no es un directorio, hacemos lo que tenemos que hacer
             if(!S_ISDIR(statbuf.st_mode))
             {
-                //Escribimos en el pipe de uno de los slaves que está listo
-                FILE * writePipeFile = fdopen(pipefds[2*writeSlave][1],"w");
-                setvbuf(writePipeFile, NULL, _IONBF, 0);
-                if(writePipeFile==NULL)
-                {
-                    perror("Error in writing on pipe");
-                    exit(1);
-                }
                 //DEBUG
                 fprintf(stderr,"DEBUG: Sending to slave %d : %s\n", writeSlave, argv[writtenFiles]);
                 //-----
-                size_t printValue = fwrite(argv[writtenFiles],1,strlen(argv[writtenFiles])+1,writePipeFile);
+                size_t printValue = fwrite(argv[writtenFiles],1,strlen(argv[writtenFiles])+1,wFiles[writeSlave]);
                 if(printValue<=0)
                 {
                     perror("Error in writing in pipe");
@@ -191,31 +200,20 @@ int main(int argc, char* argv[])
         if(readSlave>=0)
         {
             //Leemos del pipe de uno de los slaves que haya terminado
-            FILE * readPipeFile = fdopen(pipefds[2*readSlave+1][0],"r");
-            if(readPipeFile==NULL)
-            {
-                perror("Error in reading from pipe");
-                exit(1);
-            }
+
             char s[128];
-            fgets(s,128,readPipeFile);
+            fgets(s,128,rFiles[readSlave]);
             //DEBUG
             fprintf(stderr,"DEBUG: Read from slave %d : %s\n", readSlave, s);
             //-----
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
             readFiles++;
-            //fclose(readPipeFile);
         }
     }
 
     for(int i=0;i<SLAVE_COUNT;i++)
     {
-        if(close(pipefds[2*i][1])!=0)
-        {
-            perror("Error in closing pipes");
-            exit(1);
-        }
-        if(close(pipefds[2*i+1][0])!=0)
+        if( fclose(wFiles[i])!=0 || fclose(rFiles[i])!=0 )
         {
             perror("Error in closing pipes");
             exit(1);
@@ -267,23 +265,22 @@ int main(int argc, char* argv[])
 
 //Setea los file descriptor writefds y readfds a los valores de los pipes, tambien calcula el nfds y lo devuelve
 //Si los file descriptors estan en -1 entonces no los setea pues estan cerrados
-int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,int pipeFds[][2])
+int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,FILE* writeFiles[],FILE* readFiles[])
 {
     int nfds=0;
     FD_ZERO(writeFds);
     FD_ZERO(readFds);
     for (int i = 0; i <SLAVE_COUNT; ++i)
     {
-        if(pipeFds[2*i][1]!=-1)
-        {
-            FD_SET(pipeFds[2*i][1],writeFds);
-            if(pipeFds[2*i][1]>=nfds) nfds=pipeFds[2*i][1];
-        }
-        if(pipeFds[2*i+1][0]!=-1)
-        {
-            FD_SET(pipeFds[2*i+1][0], readFds);
-            if(pipeFds[2*i+1][0]>=nfds) nfds=pipeFds[2*i+1][0];
-        }
+        FD_SET(fileno(writeFiles[i]),writeFds);
+
+        if(fileno(writeFiles[i])>=nfds) nfds=fileno(writeFiles[i]);
+        
+       
+        FD_SET(fileno(readFiles[i]), readFds);
+
+        if(fileno(readFiles[i])>=nfds) nfds=fileno(readFiles[i]);
+    
     }
     return nfds + 1;
 }
