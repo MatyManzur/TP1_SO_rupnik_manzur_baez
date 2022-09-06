@@ -20,7 +20,7 @@
 #define SEMAPHORE_NAME "/mysemaphore"
 #define INITIAL_SEMAPHORE_VALUE 0
 
-void initiatePipesAndSlaves(int slavepids[][2],int pipefds[]);
+void initiatePipesAndSlaves(int pipefds[][2],int slavepids[]);
 int resetWriteReadFds(fd_set* writeFds,fd_set* readFds,FILE* writeFiles[],FILE* readFiles[]);
 void waitForSlaves(int slavepids[]);
 int lenstrcpy(char dest[], char source[]);
@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
     int pipefds[SLAVE_COUNT*2][2]; //por cada slave tenemos un pipe de ida (2*i) y un pipe de vuelta (2*i+1),
                                     // cada uno tiene dos file descriptors [0] (salida del pipe) y [1] (entrada del pipe)
 
-    initiatePipesAndSlaves(slavepids,pipefds);
+    initiatePipesAndSlaves(pipefds,slavepids);
 
     FILE * wFiles[SLAVE_COUNT];
     FILE * rFiles[SLAVE_COUNT];
@@ -172,18 +172,22 @@ int main(int argc, char* argv[])
     }
 
     waitForSlaves(slavepids);
-
+    
     //hacer lo mismo que con el tree (esperamos a que lo corrijan? lo corregiran?)
     //pero en vez de printearlo se lo pasamos al slave que esté desocupado -> usar select() para ver eso
 
-    if(sem_unlink(semVistaReadyToRead)){ // al parecer esto es suficiente, quizás haya que hacer sem_close también
+     if(sem_unlink(SEMAPHORE_NAME)){ // al parecer esto es suficiente, quizás haya que hacer sem_close también
         perror("Error destroying semaphore(s)");
+        exit(1);
+    }
+    if(munmap(addr_mapped,SHM_SIZE)==-1){
+        perror("Error in destroying shared memory");
         exit(1);
     }
     return close(fdsharedmem); // quizás haya que usar munmap y/o shm_unlink
 }
 
-void initiatePipesAndSlaves(int slavepids[][2],int pipefds[]){
+void initiatePipesAndSlaves(int pipefds[][2],int slavepids[]){
     //Por cada slave
     for(int i=0 ; i<SLAVE_COUNT ; i++)
     {
