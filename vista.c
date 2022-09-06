@@ -13,7 +13,8 @@
 //deberían compartir un .h con estas definiciones
 #define SHM_NAME "/oursharedmemory" 
 #define SHM_SIZE 1024
-
+#define SEMAPHORE_NAME "/mysemaphore"
+#define INITIAL_SEMAPHORE_VALUE 0
 
 int main(int argc, char* argv[])
 {
@@ -22,22 +23,21 @@ int main(int argc, char* argv[])
     if((fdsharedmem=shm_open(SHM_NAME,O_RDWR, 0))==-1) perror("Error opening Shared Memory"); // no me acuerdo qué era el último argumento
     if((addr_mapped=mmap(NULL,SHM_SIZE,PROT_READ|PROT_WRITE, MAP_SHARED,fdsharedmem,0))==MAP_FAILED) perror("Problem mapping shared memory");
     char* ptoread = (char*) addr_mapped;
-    ptoread+=sizeof(sem_t)*2;
+    
     // hay que usar semaforos para leer y escribir
     // creo que es mejor usar los unamed
 
-    sem_t *sem1 = (sem_t *) addr_mapped;
-    sem_t *sem2 = sem1+1;
-    
-    // usamos sem_init sem_post, sem_wait, sem_destroy
-    // When the semaphore is no longer required, and before the  memory
-    // in which it is located is deallocated, the semaphore should be destroyed using sem_destroy(3).
+    sem_t * semVistaReadyToRead = sem_open(SEMAPHORE_NAME,O_CREAT,O_CREAT|O_RDWR,INITIAL_SEMAPHORE_VALUE);
+    if(semVistaReadyToRead==SEM_FAILED){
+        perror("Error with Vista's opening of Semaphore");
+        exit(1);
+    }
+    // usamos sem_open sem_post, sem_wait, sem_close, sem_unlink
 
     while(1)
     {
-        sem_wait(sem2);
-        printf("%s\n",ptoread);
-        sem_post(sem1);
+        sem_wait(semVistaReadyToRead);
+        ptoread+=(printf("%s\n",ptoread)+1);
     }
 
 }
