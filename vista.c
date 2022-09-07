@@ -48,19 +48,17 @@ int main(int argc, char* argv[])
     int fdsharedmem;
     void * addr_mapped = openSharedMemory(&fdsharedmem,shmName,shmSize);
     char* ptoread = (char*) addr_mapped;
-    
-    // hay que usar semaforos para leer y escribir
-    // creo que es mejor usar los unamed
 
     sem_t * semVistaReadyToRead = sem_open(semaphoreName,O_CREAT,O_CREAT|O_RDWR,initialSemaphoreValue);
     if(semVistaReadyToRead==SEM_FAILED){
         perror("Error with Vista's opening of Semaphore");
         exit(1);
     }
-    // usamos sem_open sem_post, sem_wait, sem_close, sem_unlink
 
-    while(*ptoread != '\n')
+    char charShowingContinuation=*ptoread;
+    while(*ptoread == charShowingContinuation)
     {
+        ptoread++;
         sem_wait(semVistaReadyToRead);
         ptoread+=printf("%s\n",ptoread);
     }

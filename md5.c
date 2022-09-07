@@ -18,6 +18,7 @@
 #define SLAVE_COUNT 10
 #define SEMAPHORE_NAME "/mysemaphore"
 #define INITIAL_SEMAPHORE_VALUE 0
+#define CHARACTER_SHOWING_CONTINUATION '\n'
 
 void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
 
@@ -66,6 +67,8 @@ int main(int argc, char *argv[])
     if ((addr_mapped = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fdsharedmem, 0)) == MAP_FAILED)
         perror("Problem mapping shared memory");
     char *ptowrite = (char *) addr_mapped;
+    *ptowrite=CHARACTER_SHOWING_CONTINUATION;
+    ptowrite++;
 
     sem_t *semVistaReadyToRead = sem_open(SEMAPHORE_NAME, O_CREAT, O_CREAT | O_RDWR, INITIAL_SEMAPHORE_VALUE);
     if (semVistaReadyToRead == SEM_FAILED)
@@ -74,6 +77,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    sleep(2);
     printf("%s\n%d\n%s\n%d\n",SHM_NAME,SHM_SIZE,SEMAPHORE_NAME,INITIAL_SEMAPHORE_VALUE);
 
     // SELECT
@@ -172,13 +176,16 @@ int main(int argc, char *argv[])
             fgets(s, 128, rFiles[readSlave]);
             sprintf(pid,"Slave PID:%d",slavepids[readSlave]);
             strncat(s,pid,31);
-            ptowrite += (lenstrcpy(ptowrite, s)+1); 
+            ptowrite += (lenstrcpy(ptowrite, s)+1);
+            if(++readFiles<argc)
+            {
+                *ptowrite = CHARACTER_SHOWING_CONTINUATION;
+                ptowrite++;
+            }
             sem_post(semVistaReadyToRead);
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
-            readFiles++;
         }
     }
-    *ptowrite = '\n'; // Terminamos la linea que vamos a escribir y vista va saber cuando parar
 
     //Cerramos los pipes
     closePipes(wFiles, rFiles);
