@@ -74,6 +74,8 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    printf("%s\n%d\n%s\n%d\n",SHM_NAME,SHM_SIZE,SEMAPHORE_NAME,INITIAL_SEMAPHORE_VALUE);
+
     // SELECT
 
     //en argv[1,2,...] tenemos los nombres de los archivos
@@ -180,6 +182,11 @@ int main(int argc, char *argv[])
 
     //Esperamos por los esclavos a que terminen
     waitForSlaves(slavepids);
+
+    if(munmap(addr_mapped,SHM_SIZE)==-1){
+        perror("Error in destroying shared memory");
+        exit(1);
+    }
 
     return close(fdsharedmem);
 }
