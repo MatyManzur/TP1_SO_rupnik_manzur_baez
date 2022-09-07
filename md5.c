@@ -21,7 +21,7 @@
 
 void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
 
-int resetReadFds(fd_set *readFds, FILE *readFiles[], const int slaveReady[]);
+int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE *writeFiles[], const int slaveReady[]);
 
 void waitForSlaves(int slavepids[]);
 
@@ -96,16 +96,27 @@ int main(int argc, char *argv[])
         // vamos a buscar un slave disponible para escribir, y uno que ya esté listo para leer el resultado
         int readSlave = -1, writeSlave = -1;
 
-        //creamos el set que usará select() para monitorear los pipes que ya tienen contenido para leer
+        //creamos los sets que usará select() para monitorear los pipes que ya tienen contenido para leer, y los disponibles para escribir
         fd_set readFds;
+        fd_set writeFds;
 
         //nfds --> fd más alto de los que estamos usando + 1 (pedido por select)
-        int nfds = resetReadFds(&readFds, rFiles, slaveReady);
-        //además resetReadFds() deja en el set readFds, los fd con que queremos que el select trabaje
-        //solo le agregamos los fd de los procesos que sabemos que están ocupados, porque son los que esperamos que escriban en el pipe
+        int nfds = resetReadWriteFds(&readFds, &writeFds, rFiles, wFiles, slaveReady);
+        //además resetReadFds() deja en los sets readFds y writeFds, los fd con que queremos que el select trabaje
+        //a readFds solo le agregamos los fd de los procesos que sabemos que están ocupados, porque son los que esperamos que escriban en el pipe.
+        //a writeFds solo le agregamos los fd de los procesos que sabemos que están listos para escribir.
+        //En teoría, los pipes de ida deberían estar vacíos si sabemos que están listos para escribir, por lo que select() no va a filtrar nada de este
+        //set probablemente. Sin embargo, lo ponemos para que select() pueda continuar si todavía no hay nada para leer, pues hay cosas para escribir.
+
+        //si ya no hay cosas para escribir, entonces sí debería quedarse esperando el select a recibir algo para leer,
+        //por lo tanto vaciamos el writeFds set
+        if(writtenFiles >= argc)
+        {
+            FD_ZERO(&writeFds);
+        }
 
         //select esperará que haya por lo menos un pipe disponible para leer o escribir, y devolverá quienes son cuando los encuentre
-        if (select(nfds, &readFds, NULL, NULL, NULL) == -1)
+        if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
         {
             perror("Select Error");
             exit(1);
@@ -113,15 +124,15 @@ int main(int argc, char *argv[])
 
         for (int i = 0; i < SLAVE_COUNT && (readSlave == -1 || writeSlave == -1); i++)
         {
-            //sabemos que el pipe de ida está vacío si está ready, porque entonces ya devolvió el md5 anterior,
+            //sabemos que el pipe de ida está vacío si es que está ready, pues ya devolvió el md5 anterior,
             //y si lo hizo es porque tuvo que leer del pipe de ida, por lo que éste debería estar vacío
 
-            //entonces si todavía no encontramos uno disponible, y todavía quedan files por enviar y sabemos que ese slave i está disponible
-            if (writeSlave < 0 && writtenFiles < argc && slaveReady[i])
+            //entonces si todavía no encontramos uno disponible, y todavía quedan files por enviar y sabemos que ese slave i está disponible (lo pusimos en el writeFds)
+            if (writeSlave < 0 && writtenFiles < argc && FD_ISSET(fileno(wFiles[i]), &writeFds) != 0)
             {
-                writeSlave = i; //lo agarramos
+                writeSlave = i; //lo agarramos para escribir
             }
-            //si todavía no encontramos uno disponible para escribir y el pipe ya tiene cosas para leer, es porque terminó
+            //si el pipe ya tiene cosas para leer, es porque terminó
             if (readSlave < 0 && FD_ISSET(fileno(rFiles[i]), &readFds) != 0)
             {
                 readSlave = i; //lo agarramos para leer
@@ -223,8 +234,6 @@ void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], F
             perror("Error in closure of pipes");
             exit(1);
         }
-        //DEBUG
-        fprintf(stderr, "DEBUG: Pipes for Slave %d created\n", i);
     }
 
     for (int i = 0; i < SLAVE_COUNT; i++)
@@ -243,21 +252,31 @@ void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], F
     }
 }
 
-
-//Setea los file descriptor writefds y readfds a los valores de los pipes, tambien calcula el nfds y lo devuelve
-//Si los file descriptors estan en -1 entonces no los setea pues estan cerrados
-int resetReadFds(fd_set *readFds, FILE *readFiles[], const int slaveReady[])
+//Agrega los fds de los pipes que correspondan en los readFds y writeFds sets, tambien calcula el nfds y lo devuelve
+//Agregará los no ready a readFds, y los ready a writeFds
+int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE *writeFiles[], const int slaveReady[])
 {
     int nfds = 0;
     FD_ZERO(readFds);
+    FD_ZERO(writeFds);
     for (int i = 0; i < SLAVE_COUNT; ++i)
     {
-        if (!slaveReady[i])
+        int fd;
+        fd_set * correspondingSet;
+        if(slaveReady[i])
         {
-            FD_SET(fileno(readFiles[i]), readFds);
-            if (fileno(readFiles[i]) >= nfds)
-                nfds = fileno(readFiles[i]);
+            fd = fileno(writeFiles[i]);
+            correspondingSet = writeFds;
         }
+        else
+        {
+            fd = fileno(readFiles[i]);
+            correspondingSet = readFds;
+        }
+
+        FD_SET(fd, correspondingSet);
+        if (fd >= nfds)
+            nfds = fd;
     }
     return nfds + 1;
 }
