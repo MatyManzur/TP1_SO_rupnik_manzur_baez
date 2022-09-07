@@ -14,9 +14,6 @@ int main(int argc, char* argv[])
     char c = 0;
     int i = 0;
     char filename[NAME_MAX];
-    //DEBUG
-        fprintf(stderr,"DEBUG SLAVE: Slave created\n");
-    //-----
     ssize_t readReturnValue;
     while((readReturnValue = read(STDIN_FILENO,&c,1)) > 0) //si devuelve 0 es porque encontro un EOF
     {
@@ -28,9 +25,6 @@ int main(int argc, char* argv[])
         }
         if(c=='\0')
         {
-            //DEBUG
-            fprintf(stderr,"DEBUG SLAVE: Received %s from master\n", filename);
-            //-----
             //terminó de leer el nombre del archivo, en file name tenemos el nombre con un \0 al final
             int pid = fork();
             if(pid==0)
@@ -75,9 +69,6 @@ int main(int argc, char* argv[])
         exit(1);
     }
     //si estamos acá, es porque encontró un EOF (el master cerro el pipe)
-    //DEBUG
-        fprintf(stderr,"DEBUG SLAVE: Found EOF (pipe closed)\n");
-    //-----
     return 0;
 }
 
