@@ -34,10 +34,18 @@ int main(int argc, char* argv[])
     }
     // usamos sem_open sem_post, sem_wait, sem_close, sem_unlink
 
-    while(1)
+    while(*ptoread != '\n')
     {
         sem_wait(semVistaReadyToRead);
         ptoread+=(printf("%s\n",ptoread)+1);
     }
-
+    if(sem_unlink(SEMAPHORE_NAME)){ // al parecer esto es suficiente, quizás haya que hacer sem_close también
+        perror("Error destroying semaphore(s)");
+        exit(1);
+    }
+    if(munmap(addr_mapped,SHM_SIZE)==-1){
+        perror("Error in destroying shared memory");
+        exit(1);
+    }
+    return close(fdsharedmem); // quizás haya que usar munmap y/o shm_unlink
 }
