@@ -168,8 +168,11 @@ int main(int argc, char *argv[])
             //Leemos del pipe de uno de los slaves que haya terminado
 
             char s[128];
+            char pid[32];
             fgets(s, 128, rFiles[readSlave]);
-            ptowrite += (lenstrcpy(ptowrite, s) + 1);
+            sprintf(pid,"Slave PID:%d",slavepids[readSlave]);
+            strncat(s,pid,31);
+            ptowrite += (lenstrcpy(ptowrite, s)+1); 
             sem_post(semVistaReadyToRead);
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
             readFiles++;
