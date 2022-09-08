@@ -9,14 +9,16 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <semaphore.h>
+#include <dirent.h>
+#include "shm_manager.h"
 
+#define BUFFER_SIZE 2*NAME_MAX
 
 #define PIPE_WAS_USED 1
 #define RUN_FROM_CONSOLE 5
 
 void informationInCaseOfPipe(char ** shmName, int * shmSize, char ** semaphoreName, int * initialSemaphoreValue);
 void checkErrorGetline(int length);
-void * openSharedMemory(int * fdsharedmem, char * shmName, int shmSize);
 
 int main(int argc, char* argv[])
 {
@@ -45,9 +47,8 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    int fdsharedmem;
-    void * addr_mapped = openSharedMemory(&fdsharedmem,shmName,shmSize);
-    char* ptoread = (char*) addr_mapped;
+    shmManagerADT shmManagerAdt = newSharedMemoryManager(shmName, shmSize);
+    connectToSharedMemory(shmManagerAdt);
 
     sem_t * semVistaReadyToRead = sem_open(semaphoreName,O_CREAT,O_CREAT|O_RDWR,initialSemaphoreValue);
     if(semVistaReadyToRead==SEM_FAILED){
@@ -55,37 +56,29 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    sem_wait(semVistaReadyToRead);
-    char charShowingContinuation=*ptoread;
-    while(*ptoread == charShowingContinuation)
+    char buffer[BUFFER_SIZE];
+    int lastMessage = 0;
+    while(!lastMessage)
     {
-        ptoread++;
         sem_wait(semVistaReadyToRead);
-        ptoread+=printf("%s\n",ptoread);
+        lastMessage = readMessage(shmManagerAdt,buffer, BUFFER_SIZE);
+        printf("%s\n",buffer);
     }
 
+    destroySharedMemory(shmManagerAdt);
+    freeSharedMemoryManager(shmManagerAdt);
 
-    if(sem_close(semVistaReadyToRead)==-1)
+    if(sem_unlink(semaphoreName))
     {
-        perror("Error closing semaphore");
-    }
-    if(sem_unlink(semaphoreName)){
-        perror("Error destroying semaphore");
+        perror("Error in unlinking semaphore");
         exit(1);
     }
-    if(munmap(addr_mapped,shmSize)==-1){
-        perror("Error in destroying shared memory");
-        exit(1);
-    }
-    if(shm_unlink(shmName)==-1){
-        perror("Error unlinking shared memory object");
-        exit(1);
-    }
+
     if(pipeWasUsed){
         free(shmName);
         free(semaphoreName);
     }
-    return close(fdsharedmem); 
+    return 0;
 }
 
 
@@ -122,15 +115,4 @@ void checkErrorGetline(int length){
         perror("Error assigning parameters value");
         exit(1);
     }
-}
-
-void * openSharedMemory(int * fdsharedmem, char * shmName, int shmSize){
-    void * addr_mapped;
-    if(((*fdsharedmem)=shm_open(shmName,O_RDWR, 0))==-1)
-        perror("Error opening Shared Memory");
-
-    if((addr_mapped=mmap(NULL,shmSize,PROT_READ|PROT_WRITE, MAP_SHARED,*fdsharedmem,0))==MAP_FAILED)
-        perror("Problem mapping shared memory");
-
-    return addr_mapped;
 }

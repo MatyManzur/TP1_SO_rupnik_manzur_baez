@@ -4,21 +4,22 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/mman.h>
+
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include <semaphore.h>
+
 #include <string.h>
 #include <sys/select.h>
 #include <sys/wait.h>
+#include "shm_manager.h"
+
+#define SLAVE_COUNT 10
 
 #define SHM_NAME "/oursharedmemory"
 #define SHM_SIZE 1024
-#define SLAVE_COUNT 10
 #define SEMAPHORE_NAME "/mysemaphore"
 #define INITIAL_SEMAPHORE_VALUE 0
-#define CHARACTER_SHOWING_CONTINUATION '\n'
 
 void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
 
@@ -28,15 +29,12 @@ void waitForSlaves(int slavepids[]);
 
 void closePipes(FILE *wFiles[], FILE *rFiles[]);
 
-int lenstrcpy(char dest[], const char source[]);
-
-void * openSharedMemory(int * fdsharedmem);
-
 FILE* createFile(char* name);
 
 int writeInFile(FILE* file,char * string);
 
 void closeFile(FILE* file);
+
 int main(int argc, char *argv[])
 {
     //Chequeamos que haya por lo menos un argumento
@@ -68,11 +66,9 @@ int main(int argc, char *argv[])
     initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles);
 
     // inicializacion de shared memory y semáforos
-    int fdsharedmem;
-    void *addr_mapped=openSharedMemory(&fdsharedmem);
-    char *ptowrite = (char *) addr_mapped;
-    *ptowrite=CHARACTER_SHOWING_CONTINUATION;
-    ptowrite++;
+    shmManagerADT shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE);
+
+    createSharedMemory(shmManagerAdt);
 
     sem_t *semVistaReadyToRead = sem_open(SEMAPHORE_NAME, O_CREAT, O_CREAT | O_RDWR, INITIAL_SEMAPHORE_VALUE);
     if (semVistaReadyToRead == SEM_FAILED)
@@ -81,8 +77,6 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-
-    sem_post(semVistaReadyToRead);
     printf("%s\n%d\n%s\n%d\n",SHM_NAME,SHM_SIZE,SEMAPHORE_NAME,INITIAL_SEMAPHORE_VALUE);
     sleep(2);
     
@@ -182,13 +176,8 @@ int main(int argc, char *argv[])
             fgets(s, 128, rFiles[readSlave]);
             sprintf(pid,"Slave PID:%d",slavepids[readSlave]);
             strncat(s,pid,31);
-            ptowrite += (lenstrcpy(ptowrite, s)+1);
+            writeMessage(shmManagerAdt,s, ++readFiles >= argc);
             writeInFile(output,s);
-            if(++readFiles<argc)
-            {
-                *ptowrite = CHARACTER_SHOWING_CONTINUATION;
-                ptowrite++;
-            }
             sem_post(semVistaReadyToRead);
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
         }
@@ -196,37 +185,18 @@ int main(int argc, char *argv[])
 
     //Cerramos los pipes
     closePipes(wFiles, rFiles);
+    closeFile(output);
 
     //Esperamos por los esclavos a que terminen
     waitForSlaves(slavepids);
 
-    if(sem_close(semVistaReadyToRead)==-1)
-    {
-        perror("Error closing semaphore");
-    }
+    disconnectFromSharedMemory(shmManagerAdt);
+    freeSharedMemoryManager(shmManagerAdt);
 
-    if(munmap(addr_mapped,SHM_SIZE)==-1)
-    {
-        perror("Error destroying shared memory");
-        exit(1);
-    }
-    closeFile(output);
-    return close(fdsharedmem);
+    return 0;
 }
 
 
-void * openSharedMemory(int * fdsharedmem){
-    void * addr_mapped;
-    if ((*fdsharedmem = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)) == -1)
-        perror("Error opening Shared Memory");
-    
-    if (ftruncate(*fdsharedmem, SHM_SIZE) == -1)
-        perror("Error trying to ftruncate");
-    
-    if ((addr_mapped = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, *fdsharedmem, 0)) == MAP_FAILED)
-        perror("Problem mapping shared memory");
-    return addr_mapped;
-}
 
 void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[])
 {
@@ -352,17 +322,7 @@ void waitForSlaves(int slavepids[])
     }
 }
 
-int lenstrcpy(char dest[], const char source[])
-{
-    int i = 0;
-    while (source[i] != '\0')
-    {
-        dest[i] = source[i];
-        i++;
-    }
-    dest[i] = '\0';
-    return i;
-}
+
 
 
 FILE* createFile(char* name){
