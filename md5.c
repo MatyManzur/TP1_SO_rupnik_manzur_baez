@@ -191,8 +191,14 @@ int main(int argc, char *argv[])
     //Esperamos por los esclavos a que terminen
     waitForSlaves(slavepids);
 
-    if(munmap(addr_mapped,SHM_SIZE)==-1){
-        perror("Error in destroying shared memory");
+    if(sem_close(semVistaReadyToRead)==-1)
+    {
+        perror("Error closing semaphore");
+    }
+
+    if(munmap(addr_mapped,SHM_SIZE)==-1)
+    {
+        perror("Error destroying shared memory");
         exit(1);
     }
 

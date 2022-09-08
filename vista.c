@@ -64,8 +64,13 @@ int main(int argc, char* argv[])
         ptoread+=printf("%s\n",ptoread);
     }
 
+
+    if(sem_close(semVistaReadyToRead)==-1)
+    {
+        perror("Error closing semaphore");
+    }
     if(sem_unlink(semaphoreName)){
-        perror("Error destroying semaphore(s)");
+        perror("Error destroying semaphore");
         exit(1);
     }
     if(munmap(addr_mapped,shmSize)==-1){
@@ -126,6 +131,6 @@ void * openSharedMemory(int * fdsharedmem, char * shmName, int shmSize){
 
     if((addr_mapped=mmap(NULL,shmSize,PROT_READ|PROT_WRITE, MAP_SHARED,*fdsharedmem,0))==MAP_FAILED)
         perror("Problem mapping shared memory");
-        
+
     return addr_mapped;
 }
