@@ -29,11 +29,11 @@ void waitForSlaves(int slavepids[]);
 
 void closePipes(FILE *wFiles[], FILE *rFiles[]);
 
-FILE* createFile(char* name);
+FILE *createFile(char *name);
 
-int writeInFile(FILE* file,char * string);
+int writeInFile(FILE *file, char *string);
 
-void closeFile(FILE* file);
+void closeFile(FILE *file);
 
 int main(int argc, char *argv[])
 {
@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     FILE *wFiles[SLAVE_COUNT];
     FILE *rFiles[SLAVE_COUNT];
 
-    FILE* output=createFile("Resultados.txt");
+    FILE *output = createFile("Resultados.txt");
 
     //Esta función setea estas variables antes mencionadas
     initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles);
@@ -77,9 +77,9 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    printf("%s\n%d\n%s\n%d\n",SHM_NAME,SHM_SIZE,SEMAPHORE_NAME,INITIAL_SEMAPHORE_VALUE);
+    printf("%s\n%d\n%s\n%d\n", SHM_NAME, SHM_SIZE, SEMAPHORE_NAME, INITIAL_SEMAPHORE_VALUE);
     sleep(2);
-    
+
     // SELECT
 
     //en argv[1,2,...] tenemos los nombres de los archivos
@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
 
         //si ya no hay cosas para escribir, entonces sí debería quedarse esperando el select a recibir algo para leer,
         //por lo tanto vaciamos el writeFds set
-        if(writtenFiles >= argc)
+        if (writtenFiles >= argc)
         {
             FD_ZERO(&writeFds);
         }
@@ -174,10 +174,10 @@ int main(int argc, char *argv[])
             char s[128];
             char pid[32];
             fgets(s, 128, rFiles[readSlave]);
-            sprintf(pid,"Slave PID:%d",slavepids[readSlave]);
-            strncat(s,pid,31);
-            writeMessage(shmManagerAdt,s, ++readFiles >= argc);
-            writeInFile(output,s);
+            sprintf(pid, "Slave PID:%d", slavepids[readSlave]);
+            strncat(s, pid, 31);
+            writeMessage(shmManagerAdt, s, ++readFiles >= argc);
+            writeInFile(output, s);
             sem_post(semVistaReadyToRead);
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
         }
@@ -195,7 +195,6 @@ int main(int argc, char *argv[])
 
     return 0;
 }
-
 
 
 void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[])
@@ -276,13 +275,12 @@ int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE
     for (int i = 0; i < SLAVE_COUNT; ++i)
     {
         int fd;
-        fd_set * correspondingSet;
-        if(slaveReady[i])
+        fd_set *correspondingSet;
+        if (slaveReady[i])
         {
             fd = fileno(writeFiles[i]);
             correspondingSet = writeFds;
-        }
-        else
+        } else
         {
             fd = fileno(readFiles[i]);
             correspondingSet = readFds;
@@ -323,26 +321,32 @@ void waitForSlaves(int slavepids[])
 }
 
 
-
-
-FILE* createFile(char* name){
-    FILE * out=fopen(name,"w");
-    if(out==NULL){
+FILE *createFile(char *name)
+{
+    FILE *out = fopen(name, "w");
+    if (out == NULL)
+    {
         perror("Error in creating file");
         exit(1);
     }
     return out;
 }
-int writeInFile(FILE* file,char * string){
-    int amount=fprintf(file,"%s\n",string);
-    if(amount<=0){
+
+int writeInFile(FILE *file, char *string)
+{
+    int amount = fprintf(file, "%s\n", string);
+    if (amount <= 0)
+    {
         perror("Error in writing file");
         exit(1);
     }
     return amount;
 }
-void closeFile(FILE* file){
-    if(fclose(file)==EOF){
+
+void closeFile(FILE *file)
+{
+    if (fclose(file) == EOF)
+    {
         perror("Error in closing file");
         exit(1);
     }

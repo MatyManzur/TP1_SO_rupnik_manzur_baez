@@ -1,14 +1,15 @@
 #include "shm_manager.h"
 
-typedef struct shmManagerCDT{
+typedef struct shmManagerCDT
+{
     int fdsharedmem;
-    char* shmName;
+    char *shmName;
     ssize_t shmSize;
-    char* initialMemPtr;
-    char* memPtr;
+    char *initialMemPtr;
+    char *memPtr;
 } shmManagerCDT;
 
-shmManagerADT newSharedMemoryManager(char* shmName, ssize_t shmSize)
+shmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
 {
     shmManagerADT adt = calloc(1, sizeof(struct shmManagerCDT));
     adt->fdsharedmem = -1;
@@ -18,6 +19,7 @@ shmManagerADT newSharedMemoryManager(char* shmName, ssize_t shmSize)
 }
 
 int lenstrcpy(char dest[], const char source[]);
+
 int checkIfConnected(shmManagerADT shmManagerAdt);
 
 void freeSharedMemoryManager(shmManagerADT shmManagerAdt)
@@ -39,43 +41,46 @@ int createSharedMemory(shmManagerADT shmManagerAdt)
         return -1;
     }
 
-    if ((shmManagerAdt->initialMemPtr = mmap(NULL, shmManagerAdt->shmSize, PROT_READ | PROT_WRITE, MAP_SHARED, shmManagerAdt->fdsharedmem, 0)) == MAP_FAILED)
+    if ((shmManagerAdt->initialMemPtr = mmap(NULL, shmManagerAdt->shmSize, PROT_READ | PROT_WRITE, MAP_SHARED,
+                                             shmManagerAdt->fdsharedmem, 0)) == MAP_FAILED)
     {
         perror("Problem mapping shared memory");
         return -1;
     }
-    shmManagerAdt->memPtr = shmManagerAdt -> initialMemPtr;
+    shmManagerAdt->memPtr = shmManagerAdt->initialMemPtr;
     return 0;
 }
 
 int connectToSharedMemory(shmManagerADT shmManagerAdt)
 {
-    if((shmManagerAdt->fdsharedmem = shm_open(shmManagerAdt->shmName,O_RDWR, 0))==-1)
+    if ((shmManagerAdt->fdsharedmem = shm_open(shmManagerAdt->shmName, O_RDWR, 0)) == -1)
     {
         perror("Error opening Shared Memory");
         return -1;
     }
 
-    if((shmManagerAdt->initialMemPtr=mmap(NULL,shmManagerAdt->shmSize,PROT_READ|PROT_WRITE, MAP_SHARED,shmManagerAdt->fdsharedmem,0))==MAP_FAILED)
+    if ((shmManagerAdt->initialMemPtr = mmap(NULL, shmManagerAdt->shmSize, PROT_READ | PROT_WRITE, MAP_SHARED,
+                                             shmManagerAdt->fdsharedmem, 0)) == MAP_FAILED)
     {
         perror("Problem mapping shared memory");
         return -1;
     }
-    shmManagerAdt->memPtr = shmManagerAdt -> initialMemPtr;
+    shmManagerAdt->memPtr = shmManagerAdt->initialMemPtr;
     return 0;
 }
 
 int disconnectFromSharedMemory(shmManagerADT shmManagerAdt)
 {
-    if(!checkIfConnected(shmManagerAdt))
+    if (!checkIfConnected(shmManagerAdt))
     {
         return -2;
     }
-    if(munmap(shmManagerAdt->initialMemPtr,shmManagerAdt->shmSize)==-1){
+    if (munmap(shmManagerAdt->initialMemPtr, shmManagerAdt->shmSize) == -1)
+    {
         perror("Error in unmaping shared memory");
         return -1;
     }
-    if(close(shmManagerAdt->fdsharedmem))
+    if (close(shmManagerAdt->fdsharedmem))
     {
         perror("Error in closing shared memory");
         return -1;
@@ -85,19 +90,21 @@ int disconnectFromSharedMemory(shmManagerADT shmManagerAdt)
 
 int destroySharedMemory(shmManagerADT shmManagerAdt)
 {
-    if(!checkIfConnected(shmManagerAdt))
+    if (!checkIfConnected(shmManagerAdt))
     {
         return -2;
     }
-    if(munmap(shmManagerAdt->initialMemPtr,shmManagerAdt->shmSize)==-1){
+    if (munmap(shmManagerAdt->initialMemPtr, shmManagerAdt->shmSize) == -1)
+    {
         perror("Error in unmaping shared memory");
         return -1;
     }
-    if(shm_unlink(shmManagerAdt->shmName)==-1){
+    if (shm_unlink(shmManagerAdt->shmName) == -1)
+    {
         perror("Error unlinking shared memory object");
         return -1;
     }
-    if(close(shmManagerAdt->fdsharedmem))
+    if (close(shmManagerAdt->fdsharedmem))
     {
         perror("Error in closing shared memory");
         return -1;
@@ -105,18 +112,18 @@ int destroySharedMemory(shmManagerADT shmManagerAdt)
     return 0;
 }
 
-int writeMessage(shmManagerADT shmManagerAdt, char* message, int last)
+int writeMessage(shmManagerADT shmManagerAdt, char *message, int last)
 {
-    if(!checkIfConnected(shmManagerAdt))
+    if (!checkIfConnected(shmManagerAdt))
     {
         return -2;
     }
-    shmManagerAdt->memPtr += (lenstrcpy(shmManagerAdt->memPtr, message)+1);
-    if(shmManagerAdt->memPtr > shmManagerAdt->initialMemPtr + shmManagerAdt->shmSize)
+    shmManagerAdt->memPtr += (lenstrcpy(shmManagerAdt->memPtr, message) + 1);
+    if (shmManagerAdt->memPtr > shmManagerAdt->initialMemPtr + shmManagerAdt->shmSize)
     {
         return -1;
     }
-    if(!last)
+    if (!last)
     {
         *shmManagerAdt->memPtr = CHARACTER_SHOWING_CONTINUATION;
         shmManagerAdt->memPtr++;
@@ -124,19 +131,19 @@ int writeMessage(shmManagerADT shmManagerAdt, char* message, int last)
     return 0;
 }
 
-int readMessage(shmManagerADT shmManagerAdt, char* buff, ssize_t length)
+int readMessage(shmManagerADT shmManagerAdt, char *buff, ssize_t length)
 {
-    if(!checkIfConnected(shmManagerAdt))
+    if (!checkIfConnected(shmManagerAdt))
     {
         return -2;
     }
     int snprintfReturnValue = snprintf(buff, length, "%s", shmManagerAdt->memPtr);
-    if(snprintfReturnValue < 0)
+    if (snprintfReturnValue < 0)
     {
         return -1;
     }
     shmManagerAdt->memPtr += snprintfReturnValue + 1;
-    if(*(shmManagerAdt->memPtr) != CHARACTER_SHOWING_CONTINUATION)
+    if (*(shmManagerAdt->memPtr) != CHARACTER_SHOWING_CONTINUATION)
     {
         return 1;
     }
