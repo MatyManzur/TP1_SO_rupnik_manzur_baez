@@ -5,3 +5,4 @@ CMakeLists.txt
 md5
 vista
 md5Slave
+*.txt

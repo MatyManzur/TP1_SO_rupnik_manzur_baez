@@ -32,6 +32,11 @@ int lenstrcpy(char dest[], const char source[]);
 
 void * openSharedMemory(int * fdsharedmem);
 
+FILE* createFile(char* name);
+
+int writeInFile(FILE* file,char * string);
+
+void closeFile(FILE* file);
 int main(int argc, char *argv[])
 {
     //Chequeamos que haya por lo menos un argumento
@@ -57,6 +62,8 @@ int main(int argc, char *argv[])
     FILE *wFiles[SLAVE_COUNT];
     FILE *rFiles[SLAVE_COUNT];
 
+    FILE* output=createFile("Resultados.txt");
+
     //Esta función setea estas variables antes mencionadas
     initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles);
 
@@ -73,6 +80,7 @@ int main(int argc, char *argv[])
         perror("Error with Vista's opening of the Semaphore");
         exit(1);
     }
+
 
     sem_post(semVistaReadyToRead);
     printf("%s\n%d\n%s\n%d\n",SHM_NAME,SHM_SIZE,SEMAPHORE_NAME,INITIAL_SEMAPHORE_VALUE);
@@ -175,6 +183,7 @@ int main(int argc, char *argv[])
             sprintf(pid,"Slave PID:%d",slavepids[readSlave]);
             strncat(s,pid,31);
             ptowrite += (lenstrcpy(ptowrite, s)+1);
+            writeInFile(output,s);
             if(++readFiles<argc)
             {
                 *ptowrite = CHARACTER_SHOWING_CONTINUATION;
@@ -201,7 +210,7 @@ int main(int argc, char *argv[])
         perror("Error destroying shared memory");
         exit(1);
     }
-
+    closeFile(output);
     return close(fdsharedmem);
 }
 
@@ -353,4 +362,28 @@ int lenstrcpy(char dest[], const char source[])
     }
     dest[i] = '\0';
     return i;
+}
+
+
+FILE* createFile(char* name){
+    FILE * out=fopen(name,"w");
+    if(out==NULL){
+        perror("Error in creating file");
+        exit(1);
+    }
+    return out;
+}
+int writeInFile(FILE* file,char * string){
+    int amount=fprintf(file,"%s\n",string);
+    if(amount<=0){
+        perror("Error in writing file");
+        exit(1);
+    }
+    return amount;
+}
+void closeFile(FILE* file){
+    if(fclose(file)==EOF){
+        perror("Error in closing file");
+        exit(1);
+    }
 }
