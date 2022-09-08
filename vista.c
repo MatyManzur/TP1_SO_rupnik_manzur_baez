@@ -55,6 +55,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
+    sem_wait(semVistaReadyToRead);
     char charShowingContinuation=*ptoread;
     while(*ptoread == charShowingContinuation)
     {
@@ -120,11 +121,11 @@ void checkErrorGetline(int length){
 
 void * openSharedMemory(int * fdsharedmem, char * shmName, int shmSize){
     void * addr_mapped;
-    if(((*fdsharedmem)=shm_open(shmName,O_RDWR, 0))==-1){
-        perror("Error opening Shared Memory"); 
-    }
-    if((addr_mapped=mmap(NULL,shmSize,PROT_READ|PROT_WRITE, MAP_SHARED,*fdsharedmem,0))==MAP_FAILED){
+    if(((*fdsharedmem)=shm_open(shmName,O_RDWR, 0))==-1)
+        perror("Error opening Shared Memory");
+
+    if((addr_mapped=mmap(NULL,shmSize,PROT_READ|PROT_WRITE, MAP_SHARED,*fdsharedmem,0))==MAP_FAILED)
         perror("Problem mapping shared memory");
-    }
+        
     return addr_mapped;
 }

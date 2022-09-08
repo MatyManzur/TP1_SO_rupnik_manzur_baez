@@ -30,6 +30,8 @@ void closePipes(FILE *wFiles[], FILE *rFiles[]);
 
 int lenstrcpy(char dest[], const char source[]);
 
+void * openSharedMemory(int * fdsharedmem);
+
 int main(int argc, char *argv[])
 {
     //Chequeamos que haya por lo menos un argumento
@@ -60,12 +62,7 @@ int main(int argc, char *argv[])
 
     // inicializacion de shared memory y semáforos
     int fdsharedmem;
-    void *addr_mapped;
-    if ((fdsharedmem = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)) == -1)
-        perror("Error opening Shared Memory"); // no me acuerdo qué era el último argumento
-    if (ftruncate(fdsharedmem, SHM_SIZE) == -1) perror("Error trying to ftruncate");
-    if ((addr_mapped = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fdsharedmem, 0)) == MAP_FAILED)
-        perror("Problem mapping shared memory");
+    void *addr_mapped=openSharedMemory(&fdsharedmem);
     char *ptowrite = (char *) addr_mapped;
     *ptowrite=CHARACTER_SHOWING_CONTINUATION;
     ptowrite++;
@@ -77,9 +74,10 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    sleep(2);
+    sem_post(semVistaReadyToRead);
     printf("%s\n%d\n%s\n%d\n",SHM_NAME,SHM_SIZE,SEMAPHORE_NAME,INITIAL_SEMAPHORE_VALUE);
-
+    sleep(2);
+    
     // SELECT
 
     //en argv[1,2,...] tenemos los nombres de los archivos
@@ -199,6 +197,20 @@ int main(int argc, char *argv[])
     }
 
     return close(fdsharedmem);
+}
+
+
+void * openSharedMemory(int * fdsharedmem){
+    void * addr_mapped;
+    if ((*fdsharedmem = shm_open(SHM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)) == -1)
+        perror("Error opening Shared Memory");
+    
+    if (ftruncate(*fdsharedmem, SHM_SIZE) == -1)
+        perror("Error trying to ftruncate");
+    
+    if ((addr_mapped = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, *fdsharedmem, 0)) == MAP_FAILED)
+        perror("Problem mapping shared memory");
+    return addr_mapped;
 }
 
 void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[])
