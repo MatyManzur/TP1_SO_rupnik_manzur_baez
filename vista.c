@@ -12,18 +12,19 @@
 #include <dirent.h>
 #include "shm_manager.h"
 
-#define BUFFER_SIZE 2*NAME_MAX
+#define BUFFER_SIZE (NAME_MAX+2*32)
 
 #define PIPE_WAS_USED 1
 #define RUN_FROM_CONSOLE 5
 
-void informationInCaseOfPipe(char **shmName, int *shmSize, char **semaphoreName, int *initialSemaphoreValue);
+int informationInCaseOfPipe(char **shmName, int *shmSize, char **semaphoreName, int *initialSemaphoreValue);
 
-void checkErrorGetline(int length);
+
+void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName, int semaphoreOpened,
+                    ShmManagerADT shmManagerAdt);
 
 int main(int argc, char *argv[])
 {
-
     char *shmName = NULL;
     int shmSize;
     char *semaphoreName = NULL;
@@ -32,7 +33,11 @@ int main(int argc, char *argv[])
 
     if (argc == PIPE_WAS_USED)
     {
-        informationInCaseOfPipe(&shmName, &shmSize, &semaphoreName, &initialSemaphoreValue);
+        if (informationInCaseOfPipe(&shmName, &shmSize, &semaphoreName, &initialSemaphoreValue) == -1)
+        {
+            closeAllThings(1, shmName, semaphoreName, 0, NULL);
+            exit(1);
+        }
         pipeWasUsed = 1;
     } else if (argc == RUN_FROM_CONSOLE)
     {
@@ -42,17 +47,27 @@ int main(int argc, char *argv[])
         initialSemaphoreValue = atoi(argv[4]);
     } else
     {
-        printf("Error in entering of parameters\n");
+        fprintf(stderr, "Error in entering of parameters\n");
         exit(1);
     }
 
-    shmManagerADT shmManagerAdt = newSharedMemoryManager(shmName, shmSize);
-    connectToSharedMemory(shmManagerAdt);
+    ShmManagerADT shmManagerAdt;
+    if (newSharedMemoryManager(shmName, shmSize) == NULL)
+    {
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, NULL);
+        exit(1);
+    }
+    if (connectToSharedMemory(shmManagerAdt) == -1)
+    {
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, shmManagerAdt);
+        exit(1);
+    }
 
     sem_t *semVistaReadyToRead = sem_open(semaphoreName, O_CREAT, O_CREAT | O_RDWR, initialSemaphoreValue);
     if (semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of Semaphore");
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, shmManagerAdt);
         exit(1);
     }
 
@@ -60,15 +75,38 @@ int main(int argc, char *argv[])
     int lastMessage = 0;
     while (!lastMessage)
     {
-        sem_wait(semVistaReadyToRead);
+        if (sem_wait(semVistaReadyToRead) == -1)
+        {
+            perror("Error in waiting for semaphore");
+            closeAllThings(pipeWasUsed, shmName, semaphoreName, 1, shmManagerAdt);
+            exit(1);
+        }
         lastMessage = readMessage(shmManagerAdt, buffer, BUFFER_SIZE);
         printf("%s\n", buffer);
     }
+    if (lastMessage < 0)
+    {
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, 1, shmManagerAdt);
+        exit(1);
+    }
 
-    destroySharedMemory(shmManagerAdt);
-    freeSharedMemoryManager(shmManagerAdt);
+    closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
+    return 0;
+}
 
-    if (sem_unlink(semaphoreName))
+void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName, int semaphoreOpened,
+                    ShmManagerADT shmManagerAdt)
+{
+    if (shmManagerAdt != NULL)
+    {
+        if (destroySharedMemory(shmManagerAdt) < 0)
+        {
+            exit(1);
+        }
+        freeSharedMemoryManager(shmManagerAdt);
+    }
+
+    if (semaphoreOpened && sem_unlink(semaphoreName))
     {
         perror("Error in unlinking semaphore");
         exit(1);
@@ -79,44 +117,33 @@ int main(int argc, char *argv[])
         free(shmName);
         free(semaphoreName);
     }
+}
+
+
+int informationInCaseOfPipe(char **pshmName, int *pshmSize, char **psemaphoreName, int *pinitialSemaphoreValue)
+{
+    size_t len;
+    ssize_t length;
+    char *strings[4] = {*pshmName, NULL, *psemaphoreName, NULL};
+
+    for (int i = 0; i < 4; i++)
+    {
+        len = 0;
+        length = getline(&(strings[i]), &len, stdin);
+        if (length == -1)
+        {
+            perror("Error assigning parameters value");
+            return -1;
+        }
+        strings[i][length - 1] = '\0';   // para que no termine con '\n'
+    }
+
+    *pshmSize = atoi(strings[1]);
+    free(strings[1]);
+
+    *pinitialSemaphoreValue = atoi(strings[3]);
+    free(strings[3]);
+
     return 0;
 }
 
-
-void informationInCaseOfPipe(char **pshmName, int *pshmSize, char **psemaphoreName, int *pinitialSemaphoreValue)
-{
-    size_t len = 0;
-    int length;
-    char *auxiliarStringForInts = NULL;
-
-    length = getline(pshmName, &len, stdin);
-    checkErrorGetline(length);
-    (*pshmName)[length - 1] = '\0';   // para que no termine con '\n'
-
-    len = 0;
-    length = getline(&auxiliarStringForInts, &len, stdin);
-    checkErrorGetline(length);
-    *pshmSize = atoi(auxiliarStringForInts);
-    free(auxiliarStringForInts);
-    auxiliarStringForInts = NULL;
-
-    len = 0;
-    length = getline(psemaphoreName, &len, stdin);
-    checkErrorGetline(length);
-    (*psemaphoreName)[length - 1] = '\0';
-
-    len = 0;
-    length = getline(&auxiliarStringForInts, &len, stdin);
-    checkErrorGetline(length);
-    *pinitialSemaphoreValue = atoi(auxiliarStringForInts);
-    free(auxiliarStringForInts);
-}
-
-void checkErrorGetline(int length)
-{
-    if (length == -1)
-    {
-        perror("Error assigning parameters value");
-        exit(1);
-    }
-}

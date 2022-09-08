@@ -9,9 +9,14 @@ typedef struct shmManagerCDT
     char *memPtr;
 } shmManagerCDT;
 
-shmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
+ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
 {
-    shmManagerADT adt = calloc(1, sizeof(struct shmManagerCDT));
+    ShmManagerADT adt;
+    if((adt = calloc(1, sizeof(struct shmManagerCDT)))==NULL)
+    {
+        perror("Error in allocating memory for SharedMemoryManager");
+        return NULL;
+    }
     adt->fdsharedmem = -1;
     adt->shmName = shmName;
     adt->shmSize = shmSize;
@@ -20,14 +25,14 @@ shmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
 
 int lenstrcpy(char dest[], const char source[]);
 
-int checkIfConnected(shmManagerADT shmManagerAdt);
+int checkIfConnected(ShmManagerADT shmManagerAdt);
 
-void freeSharedMemoryManager(shmManagerADT shmManagerAdt)
+void freeSharedMemoryManager(ShmManagerADT shmManagerAdt)
 {
     free(shmManagerAdt);
 }
 
-int createSharedMemory(shmManagerADT shmManagerAdt)
+int createSharedMemory(ShmManagerADT shmManagerAdt)
 {
     if ((shmManagerAdt->fdsharedmem = shm_open(shmManagerAdt->shmName, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)) == -1)
     {
@@ -51,7 +56,7 @@ int createSharedMemory(shmManagerADT shmManagerAdt)
     return 0;
 }
 
-int connectToSharedMemory(shmManagerADT shmManagerAdt)
+int connectToSharedMemory(ShmManagerADT shmManagerAdt)
 {
     if ((shmManagerAdt->fdsharedmem = shm_open(shmManagerAdt->shmName, O_RDWR, 0)) == -1)
     {
@@ -69,10 +74,11 @@ int connectToSharedMemory(shmManagerADT shmManagerAdt)
     return 0;
 }
 
-int disconnectFromSharedMemory(shmManagerADT shmManagerAdt)
+int disconnectFromSharedMemory(ShmManagerADT shmManagerAdt)
 {
     if (!checkIfConnected(shmManagerAdt))
     {
+        fprintf(stderr, "Must be connected to a shared memory!");
         return -2;
     }
     if (munmap(shmManagerAdt->initialMemPtr, shmManagerAdt->shmSize) == -1)
@@ -88,10 +94,11 @@ int disconnectFromSharedMemory(shmManagerADT shmManagerAdt)
     return 0;
 }
 
-int destroySharedMemory(shmManagerADT shmManagerAdt)
+int destroySharedMemory(ShmManagerADT shmManagerAdt)
 {
     if (!checkIfConnected(shmManagerAdt))
     {
+        fprintf(stderr, "Must be connected to a shared memory!");
         return -2;
     }
     if (munmap(shmManagerAdt->initialMemPtr, shmManagerAdt->shmSize) == -1)
@@ -112,15 +119,17 @@ int destroySharedMemory(shmManagerADT shmManagerAdt)
     return 0;
 }
 
-int writeMessage(shmManagerADT shmManagerAdt, char *message, int last)
+int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last)
 {
     if (!checkIfConnected(shmManagerAdt))
     {
+        fprintf(stderr, "Must be connected to a shared memory!");
         return -2;
     }
     shmManagerAdt->memPtr += (lenstrcpy(shmManagerAdt->memPtr, message) + 1);
     if (shmManagerAdt->memPtr > shmManagerAdt->initialMemPtr + shmManagerAdt->shmSize)
     {
+        fprintf(stderr, "Exceeded shared memory size!");
         return -1;
     }
     if (!last)
@@ -131,15 +140,17 @@ int writeMessage(shmManagerADT shmManagerAdt, char *message, int last)
     return 0;
 }
 
-int readMessage(shmManagerADT shmManagerAdt, char *buff, ssize_t length)
+int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length)
 {
     if (!checkIfConnected(shmManagerAdt))
     {
+        fprintf(stderr, "Must be connected to a shared memory!");
         return -2;
     }
     int snprintfReturnValue = snprintf(buff, length, "%s", shmManagerAdt->memPtr);
     if (snprintfReturnValue < 0)
     {
+        perror("Error in reading from shm");
         return -1;
     }
     shmManagerAdt->memPtr += snprintfReturnValue + 1;
@@ -162,7 +173,7 @@ int lenstrcpy(char dest[], const char source[])
     return i;
 }
 
-int checkIfConnected(shmManagerADT shmManagerAdt)
+int checkIfConnected(ShmManagerADT shmManagerAdt)
 {
     return shmManagerAdt->fdsharedmem >= 0;
 }

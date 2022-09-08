@@ -12,16 +12,21 @@
 #include <string.h>
 #include <sys/select.h>
 #include <sys/wait.h>
+#include <dirent.h>
 #include "shm_manager.h"
 
 #define SLAVE_COUNT 10
+#define MD5_SIZE 32
+#define PID_SIZE 32
+#define BUFFER_SIZE (NAME_MAX+MD5_SIZE+PID_SIZE)
+
 
 #define SHM_NAME "/oursharedmemory"
 #define SHM_SIZE 1024
 #define SEMAPHORE_NAME "/mysemaphore"
 #define INITIAL_SEMAPHORE_VALUE 0
 
-void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
+int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
 
 int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE *writeFiles[], const int slaveReady[]);
 
@@ -34,6 +39,8 @@ FILE *createFile(char *name);
 int writeInFile(FILE *file, char *string);
 
 void closeFile(FILE *file);
+
+void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[]);
 
 int main(int argc, char *argv[])
 {
@@ -60,20 +67,38 @@ int main(int argc, char *argv[])
     FILE *wFiles[SLAVE_COUNT];
     FILE *rFiles[SLAVE_COUNT];
 
-    FILE *output = createFile("Resultados.txt");
+    FILE *output;
+    if ((output = createFile("Resultados.txt")) == NULL)
+    {
+        exit(1);
+    }
 
     //Esta función setea estas variables antes mencionadas
-    initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles);
+    if (initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles) == -1)
+    {
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids);
+        exit(1);
+    }
 
     // inicializacion de shared memory y semáforos
-    shmManagerADT shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE);
+    ShmManagerADT shmManagerAdt;
+    if ((shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE)) == NULL)
+    {
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids);
+        exit(1);
+    }
 
-    createSharedMemory(shmManagerAdt);
+    if (createSharedMemory(shmManagerAdt) == -1)
+    {
+        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+        exit(1);
+    }
 
     sem_t *semVistaReadyToRead = sem_open(SEMAPHORE_NAME, O_CREAT, O_CREAT | O_RDWR, INITIAL_SEMAPHORE_VALUE);
     if (semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of the Semaphore");
+        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
         exit(1);
     }
 
@@ -125,6 +150,7 @@ int main(int argc, char *argv[])
         if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
         {
             perror("Select Error");
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
             exit(1);
         }
 
@@ -134,12 +160,12 @@ int main(int argc, char *argv[])
             //y si lo hizo es porque tuvo que leer del pipe de ida, por lo que éste debería estar vacío
 
             //entonces si todavía no encontramos uno disponible, y todavía quedan files por enviar y sabemos que ese slave i está disponible (lo pusimos en el writeFds)
-            if (writeSlave < 0 && writtenFiles < argc && FD_ISSET(fileno(wFiles[i]), &writeFds) != 0)
+            if (writeSlave < 0 && writtenFiles < argc && FD_ISSET(fileno(wFiles[i]), &writeFds))
             {
                 writeSlave = i; //lo agarramos para escribir
             }
             //si el pipe ya tiene cosas para leer, es porque terminó
-            if (readSlave < 0 && FD_ISSET(fileno(rFiles[i]), &readFds) != 0)
+            if (readSlave < 0 && FD_ISSET(fileno(rFiles[i]), &readFds))
             {
                 readSlave = i; //lo agarramos para leer
             }
@@ -149,7 +175,11 @@ int main(int argc, char *argv[])
         {
             //Obtenemos informacion del archivo a procesar
             struct stat statbuf;
-            stat(argv[writtenFiles], &statbuf);
+            if (stat(argv[writtenFiles], &statbuf) == -1)
+            {
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                exit(1);
+            }
             //si no es un directorio, hacemos lo que tenemos que hacer
             if (!S_ISDIR(statbuf.st_mode))
             {
@@ -157,6 +187,7 @@ int main(int argc, char *argv[])
                 if (printValue <= 0)
                 {
                     perror("Error in writing in pipe");
+                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
                     exit(1);
                 }
                 slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
@@ -170,34 +201,69 @@ int main(int argc, char *argv[])
         if (readSlave >= 0)
         {
             //Leemos del pipe de uno de los slaves que haya terminado
-
-            char s[128];
-            char pid[32];
-            fgets(s, 128, rFiles[readSlave]);
-            sprintf(pid, "Slave PID:%d", slavepids[readSlave]);
-            strncat(s, pid, 31);
-            writeMessage(shmManagerAdt, s, ++readFiles >= argc);
-            writeInFile(output, s);
-            sem_post(semVistaReadyToRead);
+            char s[BUFFER_SIZE];
+            char pid[PID_SIZE];
+            if (fgets(s, NAME_MAX + MD5_SIZE, rFiles[readSlave]) == NULL)
+            {
+                perror("Error in reading from pipe");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                exit(1);
+            }
+            if (snprintf(pid, PID_SIZE, "Slave PID:%d", slavepids[readSlave]) < 0)
+            {
+                perror("Error in creating slave pid string");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                exit(1);
+            }
+            strncat(s, pid, PID_SIZE);
+            if (writeMessage(shmManagerAdt, s, ++readFiles >= argc) < 0)
+            {
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                exit(1);
+            }
+            if (writeInFile(output, s) == -1)
+            {
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                exit(1);
+            }
+            if (sem_post(semVistaReadyToRead) == -1)
+            {
+                perror("Error in posting to semaphore");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                exit(1);
+            }
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
         }
     }
 
-    //Cerramos los pipes
-    closePipes(wFiles, rFiles);
-    closeFile(output);
-
-    //Esperamos por los esclavos a que terminen
-    waitForSlaves(slavepids);
-
-    disconnectFromSharedMemory(shmManagerAdt);
-    freeSharedMemoryManager(shmManagerAdt);
+    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
 
     return 0;
 }
 
+void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[])
+{
+    //Cerramos los pipes
+    if (wFiles != NULL && rFiles != NULL)
+    {
+        closePipes(wFiles, rFiles);
+    }
+    if (output != NULL)
+    {
+        closeFile(output);
+    }
+    if (shmManagerAdt != NULL)
+    {
+        disconnectFromSharedMemory(shmManagerAdt);
+        freeSharedMemoryManager(shmManagerAdt);
+    }
+    if (slavepids != NULL)
+    {
+        waitForSlaves(slavepids);
+    }
+}
 
-void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[])
+int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[])
 {
     //Por cada slave
     for (int i = 0; i < SLAVE_COUNT; i++)
@@ -206,13 +272,13 @@ void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], F
         if (pipe(pipefds[2 * i]) != 0 || pipe(pipefds[2 * i + 1]) != 0)
         {
             perror("Error in creation of pipes");
-            exit(1);
+            return -1;
         }
         slavepids[i] = fork();
         if (slavepids[i] == -1)
         {
             perror("Error in forks in md5");
-            exit(1);
+            return -1;
         }
         if (slavepids[i] == 0)
         {
@@ -225,19 +291,19 @@ void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], F
             if (close(pipefds[2 * i][0]) != 0 || close(pipefds[2 * i + 1][1]) != 0)
             {
                 perror("Error in closure of pipes");
-                exit(1);
+                return -1;
             }
             for (int j = 0; j <= i; j++)
             {
                 if (close(pipefds[2 * j][1]) != 0 || close(pipefds[2 * j + 1][0]) != 0)
                 {
                     perror("Error in closure of pipes");
-                    exit(1);
+                    return -1;
                 }
             }
             execl("./md5Slave", "./md5Slave", NULL);
             perror("Error in executing Slave");
-            exit(1);
+            return -1;
             //si hacemos exec no hace falta salir del for porque ripea este codigo, si dio error el exec, hacemos return
 
         }
@@ -245,8 +311,9 @@ void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], F
         if (close(pipefds[2 * i][0]) != 0 || close(pipefds[2 * i + 1][1]) != 0)
         {
             perror("Error in closure of pipes");
-            exit(1);
+            return -1;
         }
+        return 0;
     }
 
     for (int i = 0; i < SLAVE_COUNT; i++)
@@ -254,12 +321,12 @@ void initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], F
         if ((wFiles[i] = fdopen(pipefds[2 * i][1], "w")) == NULL)
         {
             perror("Error in creating Write Files");
-            exit(1);
+            return -1;
         }
         if ((rFiles[i] = fdopen(pipefds[2 * i + 1][0], "r")) == NULL)
         {
             perror("Error in creating Read Files");
-            exit(1);
+            return -1;
         }
         setvbuf(wFiles[i], NULL, _IONBF, 0); //Desactivamos el buffering del Pipe para que se envie de forma continua
     }
@@ -327,7 +394,7 @@ FILE *createFile(char *name)
     if (out == NULL)
     {
         perror("Error in creating file");
-        exit(1);
+        return NULL;
     }
     return out;
 }
@@ -338,7 +405,7 @@ int writeInFile(FILE *file, char *string)
     if (amount <= 0)
     {
         perror("Error in writing file");
-        exit(1);
+        return -1;
     }
     return amount;
 }

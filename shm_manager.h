@@ -15,22 +15,22 @@
 
 #define CHARACTER_SHOWING_CONTINUATION '\n'
 
-typedef struct shmManagerCDT *shmManagerADT;
+typedef struct shmManagerCDT *ShmManagerADT;
 
-shmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize);
+ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize);
 
-void freeSharedMemoryManager(shmManagerADT shmManagerAdt);
+void freeSharedMemoryManager(ShmManagerADT shmManagerAdt);
 
-int createSharedMemory(shmManagerADT shmManagerAdt);
+int createSharedMemory(ShmManagerADT shmManagerAdt);
 
-int connectToSharedMemory(shmManagerADT shmManagerAdt);
+int connectToSharedMemory(ShmManagerADT shmManagerAdt);
 
-int disconnectFromSharedMemory(shmManagerADT shmManagerAdt);
+int disconnectFromSharedMemory(ShmManagerADT shmManagerAdt);
 
-int destroySharedMemory(shmManagerADT shmManagerAdt);
+int destroySharedMemory(ShmManagerADT shmManagerAdt);
 
-int writeMessage(shmManagerADT shmManagerAdt, char *message, int last);
+int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last);
 
-int readMessage(shmManagerADT shmManagerAdt, char *buff, ssize_t length);
+int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length);
 
 #endif
