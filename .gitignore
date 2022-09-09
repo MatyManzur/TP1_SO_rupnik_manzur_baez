@@ -6,3 +6,6 @@ md5
 vista
 md5Slave
 *.txt
+*.tasks
+*.log
+strace_out
