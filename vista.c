@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
     ShmManagerADT shmManagerAdt;
     if ((shmManagerAdt=newSharedMemoryManager(shmName, shmSize)) == NULL)
     {
-        FREE_NAMES(pipeWasUsed,shmName,semaphoreName);
+        FREE_NAMES(pipeWasUsed,shmName,semaphoreName)
         exit(1);
     }
     if (connectToSharedMemory(shmManagerAdt) == -1)
@@ -114,7 +114,7 @@ void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreNam
         exit(1);
     }
 
-    FREE_NAMES(pipeWasUsed,shmName,semaphoreName);
+    FREE_NAMES(pipeWasUsed,shmName,semaphoreName)
     
 }
 

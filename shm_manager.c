@@ -2,6 +2,8 @@
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include "shm_manager.h"
 
+#define CHECK_NULL(adt) if(adt==NULL) return -3;
+
 typedef struct shmManagerCDT
 {
     int fdsharedmem;
@@ -29,13 +31,16 @@ int lenstrcpy(char dest[], const char source[]);
 
 int checkIfConnected(ShmManagerADT shmManagerAdt);
 
-void freeSharedMemoryManager(ShmManagerADT shmManagerAdt)
+int freeSharedMemoryManager(ShmManagerADT shmManagerAdt)
 {
+    CHECK_NULL(shmManagerAdt)
     free(shmManagerAdt);
+    return 0;
 }
 
 int createSharedMemory(ShmManagerADT shmManagerAdt)
 {
+    CHECK_NULL(shmManagerAdt)
     if ((shmManagerAdt->fdsharedmem = shm_open(shmManagerAdt->shmName, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)) == -1)
     {
         perror("Error opening Shared Memory");
@@ -60,6 +65,7 @@ int createSharedMemory(ShmManagerADT shmManagerAdt)
 
 int connectToSharedMemory(ShmManagerADT shmManagerAdt)
 {
+    CHECK_NULL(shmManagerAdt)
     if ((shmManagerAdt->fdsharedmem = shm_open(shmManagerAdt->shmName, O_RDWR, 0)) == -1)
     {
         perror("Error opening Shared Memory");
@@ -78,6 +84,7 @@ int connectToSharedMemory(ShmManagerADT shmManagerAdt)
 
 int disconnectFromSharedMemory(ShmManagerADT shmManagerAdt)
 {
+    CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
         fprintf(stderr, "Must be connected to a shared memory!");
@@ -98,6 +105,7 @@ int disconnectFromSharedMemory(ShmManagerADT shmManagerAdt)
 
 int destroySharedMemory(ShmManagerADT shmManagerAdt)
 {
+    CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
         fprintf(stderr, "Must be connected to a shared memory!");
@@ -123,6 +131,7 @@ int destroySharedMemory(ShmManagerADT shmManagerAdt)
 
 int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last)
 {
+    CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
         fprintf(stderr, "Must be connected to a shared memory!");
@@ -144,6 +153,7 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last)
 
 int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length)
 {
+    CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
         fprintf(stderr, "Must be connected to a shared memory!");

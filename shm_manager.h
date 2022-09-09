@@ -19,7 +19,7 @@ typedef struct shmManagerCDT *ShmManagerADT;
 
 ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize);
 
-void freeSharedMemoryManager(ShmManagerADT shmManagerAdt);
+int freeSharedMemoryManager(ShmManagerADT shmManagerAdt);
 
 int createSharedMemory(ShmManagerADT shmManagerAdt);
 
