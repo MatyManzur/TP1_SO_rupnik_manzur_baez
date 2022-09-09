@@ -186,7 +186,7 @@ int main(int argc, char *argv[])
             if (!S_ISDIR(statbuf.st_mode))
             {
                 size_t printValue = fwrite(argv[writtenFiles], 1, strlen(argv[writtenFiles]) + 1, wFiles[writeSlave]);
-                if (printValue <= 0)
+                if (printValue == 0)
                 {
                     perror("Error in writing in pipe");
                     closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);

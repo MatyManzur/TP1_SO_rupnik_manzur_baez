@@ -21,7 +21,7 @@
 #define PIPE_WAS_USED 1
 #define RUN_FROM_CONSOLE 5
 
-int informationInCaseOfPipe(char **shmName, int *shmSize, char **semaphoreName, int *initialSemaphoreValue);
+int informationInCaseOfPipe(char **pshmName, int *pshmSize, char **psemaphoreName, int *pinitialSemaphoreValue);
 
 
 void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName, int semaphoreOpened,
@@ -122,13 +122,12 @@ void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreNam
 int informationInCaseOfPipe(char **pshmName, int *pshmSize, char **psemaphoreName, int *pinitialSemaphoreValue)
 {
     size_t len;
-    ssize_t length;
     char *strings[4] = {NULL, NULL, NULL, NULL};
 
     for (int i = 0; i < 4; i++)
     {
         len = 0;
-        length = getline(&(strings[i]), &len, stdin);
+        ssize_t length = getline(&(strings[i]), &len, stdin);
         if (length == -1)
         {
             perror("Error assigning parameters value");
