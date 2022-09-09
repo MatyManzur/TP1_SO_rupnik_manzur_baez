@@ -313,7 +313,6 @@ int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FI
             perror("Error in closure of pipes");
             return -1;
         }
-        return 0;
     }
 
     for (int i = 0; i < SLAVE_COUNT; i++)

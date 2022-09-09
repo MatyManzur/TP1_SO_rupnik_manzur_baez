@@ -60,11 +60,10 @@ int main(int argc, char *argv[])
         exit(1);
     }
     if (connectToSharedMemory(shmManagerAdt) == -1)
-    {
+    {   
         closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, shmManagerAdt);
         exit(1);
     }
-
     sem_t *semVistaReadyToRead = sem_open(semaphoreName, O_CREAT, O_CREAT | O_RDWR, initialSemaphoreValue);
     if (semVistaReadyToRead == SEM_FAILED)
     {
@@ -72,7 +71,6 @@ int main(int argc, char *argv[])
         closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, shmManagerAdt);
         exit(1);
     }
-
     char buffer[BUFFER_SIZE];
     int lastMessage = 0;
     while (!lastMessage)
@@ -123,7 +121,7 @@ int informationInCaseOfPipe(char **pshmName, int *pshmSize, char **psemaphoreNam
 {
     size_t len;
     ssize_t length;
-    char *strings[4] = {*pshmName, NULL, *psemaphoreName, NULL};
+    char *strings[4] = {NULL, NULL, NULL, NULL};
 
     for (int i = 0; i < 4; i++)
     {
@@ -136,13 +134,15 @@ int informationInCaseOfPipe(char **pshmName, int *pshmSize, char **psemaphoreNam
         }
         strings[i][length - 1] = '\0';   // para que no termine con '\n'
     }
+    *pshmName=strings[0];
 
     *pshmSize = atoi(strings[1]);
     free(strings[1]);
 
+    *psemaphoreName=strings[2];
+
     *pinitialSemaphoreValue = atoi(strings[3]);
     free(strings[3]);
-
     return 0;
 }
 
