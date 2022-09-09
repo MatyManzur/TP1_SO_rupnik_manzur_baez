@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #define _BSD_SOURCE
 
 #include <stdio.h>
@@ -32,7 +34,7 @@ int main(int argc, char *argv[])
             {
                 //estamos en el hijo
                 char command[NAME_MAX + MD5_COMMAND_LENGTH] = MD5_COMMAND;
-                strncat(command, filename, NAME_MAX + MD5_COMMAND_LENGTH);
+                strncat(command, filename, NAME_MAX + MD5_COMMAND_LENGTH-1-strlen(command));
                 if (system(command) != 0)
                 {
                     perror("Error occurred while creating or executing md5sum process");
