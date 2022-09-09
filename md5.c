@@ -330,6 +330,7 @@ int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FI
         }
         setvbuf(wFiles[i], NULL, _IONBF, 0); //Desactivamos el buffering del Pipe para que se envie de forma continua
     }
+    return 0;
 }
 
 //Agrega los fds de los pipes que correspondan en los readFds y writeFds sets, tambien calcula el nfds y lo devuelve

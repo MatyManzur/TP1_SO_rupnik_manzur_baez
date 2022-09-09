@@ -153,12 +153,12 @@ int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length)
         perror("Error in reading from shm");
         return -1;
     }
+
     shmManagerAdt->memPtr += snprintfReturnValue + 1;
-    if (*(shmManagerAdt->memPtr) != CHARACTER_SHOWING_CONTINUATION)
-    {
-        return 1;
-    }
-    return 0;
+
+    int lastMessage = (*(shmManagerAdt->memPtr) != CHARACTER_SHOWING_CONTINUATION);
+    shmManagerAdt->memPtr += lastMessage;
+    return lastMessage;
 }
 
 int lenstrcpy(char dest[], const char source[])

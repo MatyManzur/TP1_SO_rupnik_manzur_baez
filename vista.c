@@ -12,6 +12,8 @@
 #include <dirent.h>
 #include "shm_manager.h"
 
+#define FREE_NAMES(x,name1,name2) if(x){ free(name1);free(name2);}
+
 #define BUFFER_SIZE (NAME_MAX+2*32)
 
 #define PIPE_WAS_USED 1
@@ -52,9 +54,9 @@ int main(int argc, char *argv[])
     }
 
     ShmManagerADT shmManagerAdt;
-    if (newSharedMemoryManager(shmName, shmSize) == NULL)
+    if ((shmManagerAdt=newSharedMemoryManager(shmName, shmSize)) == NULL)
     {
-        closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, NULL);
+        FREE_NAMES(pipeWasUsed,shmName,semaphoreName);
         exit(1);
     }
     if (connectToSharedMemory(shmManagerAdt) == -1)
@@ -90,7 +92,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
+    closeAllThings(pipeWasUsed, shmName, semaphoreName, 1, shmManagerAdt);
     return 0;
 }
 
@@ -112,11 +114,8 @@ void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreNam
         exit(1);
     }
 
-    if (pipeWasUsed)
-    {
-        free(shmName);
-        free(semaphoreName);
-    }
+    FREE_NAMES(pipeWasUsed,shmName,semaphoreName);
+    
 }
 
 
