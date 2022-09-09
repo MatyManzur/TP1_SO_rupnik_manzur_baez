@@ -24,7 +24,7 @@
 
 
 #define SHM_NAME "/oursharedmemory"
-#define SHM_SIZE 1024
+#define SHM_SIZE 4096
 #define SEMAPHORE_NAME "/mysemaphore"
 #define INITIAL_SEMAPHORE_VALUE 0
 
