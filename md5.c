@@ -35,6 +35,10 @@
 #define SEMAPHORE_NAME "/mysemaphore"
 #define INITIAL_SEMAPHORE_VALUE 0
 
+#define NOT_ERROR 0
+#define ERROR_NO_SEM 1
+#define ERROR_SEM 2
+
 int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
 
 int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE *writeFiles[], const int slaveReady[]);
@@ -49,7 +53,7 @@ int writeInFile(FILE *file, char *string);
 
 void closeFile(FILE *file);
 
-void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[]);
+void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[], int error);
 
 int main(int argc, char *argv[])
 {
@@ -78,7 +82,7 @@ int main(int argc, char *argv[])
     //Esta función setea estas variables antes mencionadas
     if (initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles) == -1)
     {
-        closeAllThings(wFiles, rFiles, output, NULL, slavepids);
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids, ERROR_NO_SEM);
         exit(1);
     }
 
@@ -86,13 +90,13 @@ int main(int argc, char *argv[])
     ShmManagerADT shmManagerAdt;
     if ((shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE)) == NULL)
     {
-        closeAllThings(wFiles, rFiles, output, NULL, slavepids);
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids, ERROR_NO_SEM);
         exit(1);
     }
 
     if (createSharedMemory(shmManagerAdt) == -1)
     {
-        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_NO_SEM);
         exit(1);
     }
 
@@ -100,7 +104,7 @@ int main(int argc, char *argv[])
     if (semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of the Semaphore");
-        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
         exit(1);
     }
 
@@ -122,6 +126,8 @@ int main(int argc, char *argv[])
     //y la cantidad de md5 recibidos de los slaves (readFiles) o salteados por ser directorios
     int writtenFiles = 1, readFiles = 1;
     //(comienzan en 1 pues argc está contando un argumento de más con el nombre del programa)
+
+    int messagesSentToShm = 0;
 
     //iteramos por los archivos recibidos por argumento
     while (readFiles < argc) // no vamos a parar hasta haber recibido los md5 de todos los archivos no salteados
@@ -150,7 +156,7 @@ int main(int argc, char *argv[])
         if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
         {
             perror("Select Error");
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
             exit(1);
         }
 
@@ -173,21 +179,22 @@ int main(int argc, char *argv[])
             struct stat statbuf;
             if (stat(argv[writtenFiles], &statbuf) == -1)
             {
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                perror("Error in reading file");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                 exit(1);
             }
-            //si no es un directorio, hacemos lo que tenemos que hacer
-            if (!S_ISDIR(statbuf.st_mode))
+            //si es un regular file, hacemos lo que tenemos que hacer
+            if (S_ISREG(statbuf.st_mode))
             {
                 size_t printValue = fwrite(argv[writtenFiles], 1, strlen(argv[writtenFiles]) + 1, wFiles[writeSlave]);
                 if (printValue == 0)
                 {
                     perror("Error in writing in pipe");
-                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                     exit(1);
                 }
                 slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
-            } else //si es un directorio, md5sum no anda => lo salteamos
+            } else //si no es un reg file (directorio, etc.), md5sum no anda => lo salteamos
             {
                 readFiles++; //incrementamos readFiles porque sino nos va a faltar uno en la cuenta
             }
@@ -202,43 +209,66 @@ int main(int argc, char *argv[])
             if (fgets(s, NAME_MAX + MD5_SIZE, rFiles[readSlave]) == NULL)
             {
                 perror("Error in reading from pipe");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                 exit(1);
             }
             //Le agregamos quién fue, y lo escribimos en la shm y el archivo resultado
             if (snprintf(pid, PID_SIZE, "Slave PID:%d", slavepids[readSlave]) < 0)
             {
                 perror("Error in creating slave pid string");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                 exit(1);
             }
             strncat(s, pid, PID_SIZE);
             if (writeMessage(shmManagerAdt, s, ++readFiles >= argc) < 0)
             {
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                 exit(1);
             }
             if (writeInFile(output, s) == -1)
             {
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                 exit(1);
             }
+            messagesSentToShm++;
             if (sem_post(semVistaReadyToRead) == -1)
             {
                 perror("Error in posting to semaphore");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
                 exit(1);
             }
             slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
         }
     }
 
-    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
+    //si no se mando ningun mensaje a la shm (por ej.: eran todos directorios), le avisamos al vista para que no se quede esperando
+    if(messagesSentToShm==0)
+    {
+        char* noFilesMsg = "No files were found!";
+        if (writeMessage(shmManagerAdt, noFilesMsg, 1) < 0)
+        {
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
+            exit(1);
+        }
+        if (writeInFile(output, noFilesMsg) == -1)
+        {
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
+            exit(1);
+        }
+        if (sem_post(semVistaReadyToRead) == -1)
+        {
+            perror("Error in posting to semaphore");
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, ERROR_SEM);
+            exit(1);
+        }
+    }
+
+    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, NOT_ERROR);
 
     return 0;
 }
 
-void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[])
+void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[], int error)
 {
     if (wFiles != NULL && rFiles != NULL)
     {
@@ -250,12 +280,23 @@ void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT 
     }
     if (shmManagerAdt != NULL)
     {
-        disconnectFromSharedMemory(shmManagerAdt);
+        if(error)
+        {
+            destroySharedMemory(shmManagerAdt);
+        }
+        else
+        {
+            disconnectFromSharedMemory(shmManagerAdt);
+        }
         freeSharedMemoryManager(shmManagerAdt);
     }
     if (slavepids != NULL)
     {
         waitForSlaves(slavepids);
+    }
+    if(error==ERROR_SEM)
+    {
+        sem_unlink(SEMAPHORE_NAME);
     }
 }
 

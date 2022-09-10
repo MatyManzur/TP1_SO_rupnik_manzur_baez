@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
     }
 
     //Nos conectamos al semáforo
-    sem_t *semVistaReadyToRead = sem_open(semaphoreName, O_CREAT, O_CREAT | O_RDWR, initialSemaphoreValue);
+    sem_t *semVistaReadyToRead = sem_open(semaphoreName, 0);
     if (semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of Semaphore");

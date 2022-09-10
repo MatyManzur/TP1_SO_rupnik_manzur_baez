@@ -90,7 +90,7 @@ int disconnectFromSharedMemory(ShmManagerADT shmManagerAdt)
     CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
-        fprintf(stderr, "Must be connected to a shared memory!");
+        fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
     if (munmap(shmManagerAdt->initialMemPtr, shmManagerAdt->shmSize) == -1)
@@ -111,7 +111,7 @@ int destroySharedMemory(ShmManagerADT shmManagerAdt)
     CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
-        fprintf(stderr, "Must be connected to a shared memory!");
+        fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
     if (munmap(shmManagerAdt->initialMemPtr, shmManagerAdt->shmSize) == -1)
@@ -137,7 +137,7 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int lastMessage)
     CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
-        fprintf(stderr, "Must be connected to a shared memory!");
+        fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
     shmManagerAdt->memPtr += (lenstrcpy(shmManagerAdt->memPtr, message) + 1);
@@ -159,7 +159,7 @@ int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length, int *la
     CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
     {
-        fprintf(stderr, "Must be connected to a shared memory!");
+        fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
     int snprintfReturnValue = snprintf(buff, length, "%s", shmManagerAdt->memPtr);
