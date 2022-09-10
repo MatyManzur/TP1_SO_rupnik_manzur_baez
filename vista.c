@@ -19,12 +19,12 @@
 #define BUFFER_SIZE (NAME_MAX+2*32)
 
 #define PIPE_WAS_USED 1
-#define RUN_FROM_CONSOLE 5
+#define RUN_FROM_CONSOLE 4
 
-int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphoreName, int *pinitialSemaphoreValue);
+int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphoreName);
 
 
-void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName, int semaphoreOpened,
+void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
                     ShmManagerADT shmManagerAdt);
 
 int main(int argc, char *argv[])
@@ -32,15 +32,14 @@ int main(int argc, char *argv[])
     char *shmName = NULL;
     ssize_t shmSize;
     char *semaphoreName = NULL;
-    int initialSemaphoreValue;
     unsigned char pipeWasUsed = 0;
 
     if (argc == PIPE_WAS_USED)
     {
-        //Esta función leerá de stdin los parametros necesarios
-        if (informationInCaseOfPipe(&shmName, &shmSize, &semaphoreName, &initialSemaphoreValue) == -1)
+        //Esta función leerá de stdin los parámetros necesarios
+        if (informationInCaseOfPipe(&shmName, &shmSize, &semaphoreName) == -1)
         {
-            closeAllThings(1, shmName, semaphoreName, 0, NULL);
+            closeAllThings(1, shmName, semaphoreName, NULL);
             exit(1);
         }
         pipeWasUsed = 1;
@@ -59,13 +58,6 @@ int main(int argc, char *argv[])
 
         semaphoreName = argv[3];
 
-        initialSemaphoreValue = (int) strtol(argv[4], &endPtr, 10);
-        if ((endPtr == argv[4]) || (*endPtr != '\0'))
-        {
-            fprintf(stderr, "Error in entering of parameters. 4th argument must be integer\n");
-            exit(1);
-        }
-
     } else
     {
         fprintf(stderr, "Error in entering of parameters\n");
@@ -79,9 +71,10 @@ int main(int argc, char *argv[])
         FREE_NAMES(pipeWasUsed, shmName, semaphoreName)
         exit(1);
     }
+
     if (connectToSharedMemory(shmManagerAdt) == -1)
     {
-        closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, shmManagerAdt);
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
         exit(1);
     }
 
@@ -90,7 +83,7 @@ int main(int argc, char *argv[])
     if (semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of Semaphore");
-        closeAllThings(pipeWasUsed, shmName, semaphoreName, 0, shmManagerAdt);
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
         exit(1);
     }
 
@@ -102,51 +95,44 @@ int main(int argc, char *argv[])
         if (sem_wait(semVistaReadyToRead) == -1)
         {
             perror("Error in waiting for semaphore");
-            closeAllThings(pipeWasUsed, shmName, semaphoreName, 1, shmManagerAdt);
+            closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
             exit(1);
         }
         if (readMessage(shmManagerAdt, buffer, BUFFER_SIZE, &lastMessage) < 0)
         {
-            closeAllThings(pipeWasUsed, shmName, semaphoreName, 1, shmManagerAdt);
+            closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
             exit(1);
         }
         printf("%s\n", buffer);
     }
 
     //Cuando ya leímos hasta el último mensaje, terminamos
-    closeAllThings(pipeWasUsed, shmName, semaphoreName, 1, shmManagerAdt);
+    closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
     return 0;
 }
 
-void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName, int semaphoreOpened,
+void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
                     ShmManagerADT shmManagerAdt)
 {
     if (shmManagerAdt != NULL)
     {
-        if (destroySharedMemory(shmManagerAdt) < 0)
+        if (disconnectFromSharedMemory(shmManagerAdt) < 0)
         {
             exit(1);
         }
         freeSharedMemoryManager(shmManagerAdt);
     }
 
-    if (semaphoreOpened && sem_unlink(semaphoreName))
-    {
-        perror("Error in unlinking semaphore");
-        exit(1);
-    }
-
     FREE_NAMES(pipeWasUsed, shmName, semaphoreName)
-
 }
 
 
-int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphoreName, int *pinitialSemaphoreValue)
+int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphoreName)
 {
     size_t len;
-    char *strings[4] = {NULL, NULL, NULL, NULL};
+    char *strings[RUN_FROM_CONSOLE - 1] = {NULL, NULL, NULL};
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < RUN_FROM_CONSOLE - 1; i++)
     {
         len = 0;
         ssize_t length = getline(&(strings[i]), &len, stdin);
@@ -171,13 +157,6 @@ int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphor
 
     *psemaphoreName = strings[2];
 
-    *pinitialSemaphoreValue = (int) strtol(strings[3], &endPtr, 10);
-    if ((endPtr == strings[3]) || (*endPtr != '\0'))
-    {
-        fprintf(stderr, "Error in reading parameters from stdin. 4th argument must be integer\n");
-        return -1;
-    }
-    free(strings[3]);
     return 0;
 }
 
