@@ -1,17 +1,25 @@
-MYCOMPILER := gcc
-FLAGS_COMPILER := -g -std=c99 -Wall -lrt -pthread
-VISTA := vista.c -o vista
-MD5 := md5.c -o md5
-MD5SLAVE := md5Slave.c -o md5Slave
-SHM_MANAGER := shm_manager.c
+CC = gcc
+CFLAGS = -g -std=c99 -Wall
+LIBS = -lrt -lpthread
+DEPS = shm_manager.h
+OBJS = md5.o shm_manager.o vista.o
+EXECS = md5 vista md5Slave
 
-all:
-	$(MYCOMPILER) $(VISTA) $(SHM_MANAGER) $(FLAGS_COMPILER)
-	$(MYCOMPILER) $(MD5) $(SHM_MANAGER) $(FLAGS_COMPILER)
-	$(MYCOMPILER) $(MD5SLAVE) $(FLAGS_COMPILER)
+%.o: %.c $(DEPS)
+	$(CC) -c $< $(CFLAGS)
+
+md5: md5.o shm_manager.o
+	$(CC) $^ -o $@ $(LIBS)
+
+vista: vista.o shm_manager.o
+	$(CC) $^ -o $@ $(LIBS)
+
+md5Slave:
+	$(CC) md5Slave.c -o $@ $(CFLAGS)
+
+all: $(EXECS)
+
+.PHONY: clean
 
 clean:
-	rm vista
-	rm md5
-	rm md5Slave
-	rm Resultados.txt
+	rm -f $(OBJS) $(EXECS) Resultados.txt

@@ -2,7 +2,10 @@
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include "shm_manager.h"
 
-#define CHECK_NULL(adt) if(adt==NULL) return -3;
+#define CHECK_NULL(adt) if((adt)==NULL) { \
+                              fprintf(stderr, "ADT pointer is NULL!"); \
+                              return -3; \
+                        }
 
 typedef struct shmManagerCDT
 {
@@ -16,7 +19,7 @@ typedef struct shmManagerCDT
 ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
 {
     ShmManagerADT adt;
-    if((adt = calloc(1, sizeof(struct shmManagerCDT)))==NULL)
+    if ((adt = calloc(1, sizeof(struct shmManagerCDT))) == NULL)
     {
         perror("Error in allocating memory for SharedMemoryManager");
         return NULL;
@@ -129,7 +132,7 @@ int destroySharedMemory(ShmManagerADT shmManagerAdt)
     return 0;
 }
 
-int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last)
+int writeMessage(ShmManagerADT shmManagerAdt, char *message, int lastMessage)
 {
     CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
@@ -143,7 +146,7 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last)
         fprintf(stderr, "Exceeded shared memory size!");
         return -1;
     }
-    if (!last)
+    if (!lastMessage)
     {
         *shmManagerAdt->memPtr = CHARACTER_SHOWING_CONTINUATION;
         shmManagerAdt->memPtr++;
@@ -151,7 +154,7 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int last)
     return 0;
 }
 
-int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length)
+int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length, int *lastMessage)
 {
     CHECK_NULL(shmManagerAdt)
     if (!checkIfConnected(shmManagerAdt))
@@ -168,9 +171,13 @@ int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length)
 
     shmManagerAdt->memPtr += snprintfReturnValue + 1;
 
-    int lastMessage = (*(shmManagerAdt->memPtr) != CHARACTER_SHOWING_CONTINUATION);
-    shmManagerAdt->memPtr += lastMessage;
-    return lastMessage;
+    if (lastMessage != NULL)
+    {
+        *lastMessage = (*(shmManagerAdt->memPtr) != CHARACTER_SHOWING_CONTINUATION);
+    }
+
+    shmManagerAdt->memPtr++;
+    return snprintfReturnValue;
 }
 
 int lenstrcpy(char dest[], const char source[])

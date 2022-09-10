@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
             {
                 //estamos en el hijo
                 char command[NAME_MAX + MD5_COMMAND_LENGTH] = MD5_COMMAND;
-                strncat(command, filename, NAME_MAX + MD5_COMMAND_LENGTH-1-strlen(command));
+                strncat(command, filename, NAME_MAX + MD5_COMMAND_LENGTH - 1 - strlen(command));
                 if (system(command) != 0)
                 {
                     perror("Error occurred while creating or executing md5sum process");

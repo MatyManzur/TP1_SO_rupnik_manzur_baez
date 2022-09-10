@@ -22,6 +22,13 @@
 #define PID_SIZE 32
 #define BUFFER_SIZE (NAME_MAX+MD5_SIZE+PID_SIZE)
 
+#define RESULT_FILE_NAME "Resultados.txt"
+
+#define GOING_PIPE(slave) pipefds[2*(slave)]
+#define RETURNING_PIPE(slave) pipefds[2*(slave)+1]
+
+#define WRITING_END(pipe) (pipe)[1]
+#define READING_END(pipe) (pipe)[0]
 
 #define SHM_NAME "/oursharedmemory"
 #define SHM_SIZE 4096
@@ -53,24 +60,17 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    //slavepids tendrá los pid de los slaves
     int slavepids[SLAVE_COUNT] = {0};
 
     //pipefds tendrá los fileDescriptor de la entrada y salida de cada pipe a los slaves
-    //por cada slave tenemos un pipe de ida (2*i) y un pipe de vuelta (2*i+1),
-    //cada uno tiene dos file descriptors [0] (salida del pipe) y [1] (entrada del pipe)
     int pipefds[SLAVE_COUNT * 2][2];
 
     //wFiles y rFiles tendrán los FILE* de cada fileDescriptor utilizado por el master
-    //es decir, entradas de pipes de ida (wFiles) y salidas de pipes de vuelta (rFiles)
-    //se guardan los FILE* además de los int fd's porque más adelante, funciones como fgets y fwrite
-    //necesitan un FILE*. No hacemos un fdopen() en el momento a ser utilizado para obtener el FILE*
-    //para poder hacer un fclose() al final, y no perder la referencia causando un memory leak
     FILE *wFiles[SLAVE_COUNT];
     FILE *rFiles[SLAVE_COUNT];
 
     FILE *output;
-    if ((output = createFile("Resultados.txt")) == NULL)
+    if ((output = createFile(RESULT_FILE_NAME)) == NULL)
     {
         exit(1);
     }
@@ -135,17 +135,15 @@ int main(int argc, char *argv[])
 
         //nfds --> fd más alto de los que estamos usando + 1 (pedido por select)
         int nfds = resetReadWriteFds(&readFds, &writeFds, rFiles, wFiles, slaveReady);
-        //además resetReadFds() deja en los sets readFds y writeFds, los fd con que queremos que el select trabaje
-        //a readFds solo le agregamos los fd de los procesos que sabemos que están ocupados, porque son los que esperamos que escriban en el pipe.
-        //a writeFds solo le agregamos los fd de los procesos que sabemos que están listos para escribir.
+        //además resetReadFds() deja en los sets readFds y writeFds, los fd que queremos que select() se fije si estan disponibles
+
         //En teoría, los pipes de ida deberían estar vacíos si sabemos que están listos para escribir, por lo que select() no va a filtrar nada de este
         //set probablemente. Sin embargo, lo ponemos para que select() pueda continuar si todavía no hay nada para leer, pues hay cosas para escribir.
 
         //si ya no hay cosas para escribir, entonces sí debería quedarse esperando el select a recibir algo para leer,
-        //por lo tanto vaciamos el writeFds set
         if (writtenFiles >= argc)
         {
-            FD_ZERO(&writeFds);
+            FD_ZERO(&writeFds); //por lo tanto vaciamos el writeFds set
         }
 
         //select esperará que haya por lo menos un pipe disponible para leer o escribir, y devolverá quienes son cuando los encuentre
@@ -158,20 +156,16 @@ int main(int argc, char *argv[])
 
         for (int i = 0; i < SLAVE_COUNT && (readSlave == -1 || writeSlave == -1); i++)
         {
-            //sabemos que el pipe de ida está vacío si es que está ready, pues ya devolvió el md5 anterior,
-            //y si lo hizo es porque tuvo que leer del pipe de ida, por lo que éste debería estar vacío
-
-            //entonces si todavía no encontramos uno disponible, y todavía quedan files por enviar y sabemos que ese slave i está disponible (lo pusimos en el writeFds)
             if (writeSlave < 0 && writtenFiles < argc && FD_ISSET(fileno(wFiles[i]), &writeFds))
             {
-                writeSlave = i; //lo agarramos para escribir
+                writeSlave = i;
             }
-            //si el pipe ya tiene cosas para leer, es porque terminó
             if (readSlave < 0 && FD_ISSET(fileno(rFiles[i]), &readFds))
             {
-                readSlave = i; //lo agarramos para leer
+                readSlave = i;
             }
         }
+
         //si pasamos por todos y siguen valiendo -1 es porque no había ninguno disponible
         if (writeSlave >= 0)
         {
@@ -211,6 +205,7 @@ int main(int argc, char *argv[])
                 closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids);
                 exit(1);
             }
+            //Le agregamos quién fue, y lo escribimos en la shm y el archivo resultado
             if (snprintf(pid, PID_SIZE, "Slave PID:%d", slavepids[readSlave]) < 0)
             {
                 perror("Error in creating slave pid string");
@@ -245,7 +240,6 @@ int main(int argc, char *argv[])
 
 void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[])
 {
-    //Cerramos los pipes
     if (wFiles != NULL && rFiles != NULL)
     {
         closePipes(wFiles, rFiles);
@@ -271,7 +265,7 @@ int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FI
     for (int i = 0; i < SLAVE_COUNT; i++)
     {
         //Creamos dos pipes antes de hacer el fork
-        if (pipe(pipefds[2 * i]) != 0 || pipe(pipefds[2 * i + 1]) != 0)
+        if (pipe(GOING_PIPE(i)) != 0 || pipe(RETURNING_PIPE(i)) != 0)
         {
             perror("Error in creation of pipes");
             return -1;
@@ -284,20 +278,21 @@ int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FI
         }
         if (slavepids[i] == 0)
         {
-            //estamos en el slave, setear los fd del pipe
+            //estamos en el slave
 
-            dup2(pipefds[2 * i][0], STDIN_FILENO); //cambiamos el stdin por la salida del pipe de ida
-            dup2(pipefds[2 * i + 1][1], STDOUT_FILENO); //cambiamos el stdout por la entrada del pipe de vuelta
+            dup2(READING_END(GOING_PIPE(i)), STDIN_FILENO); //cambiamos el stdin por la salida del pipe de ida
+            dup2(WRITING_END(RETURNING_PIPE(i)), STDOUT_FILENO); //cambiamos el stdout por la entrada del pipe de vuelta
 
-            //de este "i" tenemos que cerrar los 4 fds, y de los "i" anteriores tenemos que cerrar los dos que no cerro el master anteriores
-            if (close(pipefds[2 * i][0]) != 0 || close(pipefds[2 * i + 1][1]) != 0)
+            //de este "i" tenemos que cerrar los 4 fds,
+            if (close(READING_END(GOING_PIPE(i))) != 0 || close(WRITING_END(RETURNING_PIPE(i))) != 0)
             {
                 perror("Error in closure of pipes");
                 return -1;
             }
+            //y de los "i" anteriores tenemos que cerrar los dos que no cerro el master anteriores
             for (int j = 0; j <= i; j++)
             {
-                if (close(pipefds[2 * j][1]) != 0 || close(pipefds[2 * j + 1][0]) != 0)
+                if (close(WRITING_END(GOING_PIPE(j))) != 0 || close(READING_END(RETURNING_PIPE(j))) != 0)
                 {
                     perror("Error in closure of pipes");
                     return -1;
@@ -306,25 +301,24 @@ int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FI
             execl("./md5Slave", "./md5Slave", NULL);
             perror("Error in executing Slave");
             return -1;
-            //si hacemos exec no hace falta salir del for porque ripea este codigo, si dio error el exec, hacemos return
-
         }
         //seguimos en el master, cerramos los fd que no se usan
-        if (close(pipefds[2 * i][0]) != 0 || close(pipefds[2 * i + 1][1]) != 0)
+        if (close(READING_END(GOING_PIPE(i))) != 0 || close(WRITING_END(RETURNING_PIPE(i))) != 0)
         {
             perror("Error in closure of pipes");
             return -1;
         }
     }
 
+    //guardamos los FILE* de cada fileDescriptor
     for (int i = 0; i < SLAVE_COUNT; i++)
     {
-        if ((wFiles[i] = fdopen(pipefds[2 * i][1], "w")) == NULL)
+        if ((wFiles[i] = fdopen(WRITING_END(GOING_PIPE(i)), "w")) == NULL)
         {
             perror("Error in creating Write Files");
             return -1;
         }
-        if ((rFiles[i] = fdopen(pipefds[2 * i + 1][0], "r")) == NULL)
+        if ((rFiles[i] = fdopen(READING_END(RETURNING_PIPE(i)), "r")) == NULL)
         {
             perror("Error in creating Read Files");
             return -1;
