@@ -15,6 +15,7 @@
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <dirent.h>
+#include <signal.h>
 #include "shm_manager.h"
 
 #define SLAVE_COUNT 10
@@ -62,7 +63,7 @@ int writeInFile(FILE *file, char *string);
 void closeFile(FILE *file);
 
 void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[],
-                    sem_t* semVistaReadyToRead);
+                    sem_t *semVistaReadyToRead);
 
 int main(int argc, char *argv[])
 {
@@ -75,6 +76,8 @@ int main(int argc, char *argv[])
 
     //desactivamos el buffering de stdout para que se manden instantáneamente las cosas
     setvbuf(stdout, NULL, _IONBF, 0);
+    //Si se corre en un pipe, pero el otro muere antes y no hay más pipe, SIGPIPE mata al md5, pero no nos deja cerrar los mallocs
+    signal(SIGPIPE, SIG_IGN);
 
     int slavepids[SLAVE_COUNT] = {0};
 
@@ -104,7 +107,12 @@ int main(int argc, char *argv[])
     initiateShmAndSemaphore(wFiles, rFiles, output, slavepids, &shmManagerAdt, &semVistaReadyToRead);
 
     //Mandamos la info necesaria para que se conecte el vista por stdout
-    printf("%s\n%d\n%s\n", SHM_NAME, SHM_SIZE, SEMAPHORE_NAME);
+    if (printf("%s\n%d\n%s\n", SHM_NAME, SHM_SIZE, SEMAPHORE_NAME) == -1)
+    {
+        perror("Error in writing to stdout");
+        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
+        exit(1);
+    }
 
     sleep(WAIT_FOR_VISTA_TIMEOUT); //Esperamos 2 segundos a que aparezca el vista
 
@@ -451,7 +459,7 @@ void closeFile(FILE *file)
 }
 
 void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[],
-                    sem_t* semVistaReadyToRead)
+                    sem_t *semVistaReadyToRead)
 {
     if (wFiles != NULL && rFiles != NULL)
     {
@@ -470,7 +478,7 @@ void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT 
     {
         waitForSlaves(slavepids);
     }
-    if (semVistaReadyToRead!=NULL)
+    if (semVistaReadyToRead != NULL)
     {
         sem_unlink(SEMAPHORE_NAME);
         sem_close(semVistaReadyToRead);

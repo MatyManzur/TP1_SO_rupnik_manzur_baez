@@ -30,7 +30,7 @@ initiateShmAndSemaphore(ShmManagerADT *shmManagerAdt, sem_t **semVistaReadyToRea
                         ssize_t shmSize, unsigned char pipeWasUsed);
 
 void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
-                    ShmManagerADT shmManagerAdt, sem_t * semVistaReadyToRead);
+                    ShmManagerADT shmManagerAdt, sem_t *semVistaReadyToRead);
 
 int main(int argc, char *argv[])
 {
@@ -54,19 +54,19 @@ int main(int argc, char *argv[])
         if (sem_wait(semVistaReadyToRead) == -1)
         {
             perror("Error in waiting for semaphore");
-            closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt,semVistaReadyToRead);
+            closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt, semVistaReadyToRead);
             exit(1);
         }
         if (readMessage(shmManagerAdt, buffer, BUFFER_SIZE, &lastMessage) < 0)
         {
-            closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt,semVistaReadyToRead);
+            closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt, semVistaReadyToRead);
             exit(1);
         }
         printf("%s\n", buffer);
     }
 
     //Cuando ya leímos hasta el último mensaje, terminamos
-    closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt,semVistaReadyToRead);
+    closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt, semVistaReadyToRead);
     return 0;
 }
 
@@ -110,7 +110,7 @@ unsigned char getInfoForReading(int argc, char *argv[], char **shmName, ssize_t 
         //Esta función leerá de stdin los parámetros necesarios
         if (informationInCaseOfPipe(shmName, shmSize, semaphoreName) == -1)
         {
-            closeAllThings(1, *shmName, *semaphoreName, NULL,NULL);
+            closeAllThings(1, *shmName, *semaphoreName, NULL, NULL);
             exit(1);
         }
         return 1;
@@ -147,7 +147,8 @@ initiateShmAndSemaphore(ShmManagerADT *shmManagerAdt, sem_t **semVistaReadyToRea
     }
 
     if (connectToSharedMemory(*shmManagerAdt) == -1)
-    {   fprintf(stderr,"%p",*shmManagerAdt);
+    {
+        fprintf(stderr, "%p", *shmManagerAdt);
         closeAllThings(pipeWasUsed, shmName, semaphoreName, *shmManagerAdt, NULL);
         exit(1);
     }
@@ -157,20 +158,20 @@ initiateShmAndSemaphore(ShmManagerADT *shmManagerAdt, sem_t **semVistaReadyToRea
     if (*semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of Semaphore");
-        closeAllThings(pipeWasUsed, shmName, semaphoreName, *shmManagerAdt,*semVistaReadyToRead);
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, *shmManagerAdt, *semVistaReadyToRead);
         exit(1);
     }
 }
 
 void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
-                    ShmManagerADT shmManagerAdt,sem_t* semVistaReadyToRead)
+                    ShmManagerADT shmManagerAdt, sem_t *semVistaReadyToRead)
 {
     if (shmManagerAdt != NULL)
-    {   
+    {
         disconnectFromSharedMemory(shmManagerAdt);
         freeSharedMemoryManager(shmManagerAdt);
     }
-    if(semVistaReadyToRead!=NULL && sem_close(semVistaReadyToRead)==-1)
+    if (semVistaReadyToRead != NULL && sem_close(semVistaReadyToRead) == -1)
     {
         perror("Error in closing semaphore");
     }
