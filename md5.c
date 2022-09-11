@@ -62,7 +62,7 @@ int writeInFile(FILE *file, char *string);
 void closeFile(FILE *file);
 
 void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[],
-                    int semOpened);
+                    sem_t* semVistaReadyToRead);
 
 int main(int argc, char *argv[])
 {
@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
     //Esta función setea estas variables antes mencionadas
     if (initiatePipesAndSlaves(pipefds, slavepids, wFiles, rFiles) == -1)
     {
-        closeAllThings(wFiles, rFiles, output, NULL, slavepids, 0);
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids, NULL);
         exit(1);
     }
 
@@ -112,8 +112,8 @@ int main(int argc, char *argv[])
     writeToReadFromSlavesAndSendToShm(argc, argv, wFiles, rFiles, output, shmManagerAdt, slavepids,
                                       semVistaReadyToRead);
 
-    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-
+    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
+    sem_close(semVistaReadyToRead);
     return 0;
 }
 
@@ -193,7 +193,6 @@ void closePipes(FILE *wFiles[], FILE *rFiles[])
         if (fclose(wFiles[i]) != 0 || fclose(rFiles[i]) != 0)
         {
             perror("Error in closing pipes");
-            exit(1);
         }
     }
 }
@@ -206,7 +205,6 @@ void waitForSlaves(int slavepids[])
         if (waitpid(slavepids[i], &status, WUNTRACED | WCONTINUED) == -1)
         {
             perror("Error in waiting for slaves");
-            exit(1);
         }
         if (status != 0)
             fprintf(stderr, "Error in slave %d : Exit with code %d\n", i, status);
@@ -220,13 +218,13 @@ initiateShmAndSemaphore(FILE *wFiles[], FILE *rFiles[], FILE *output, int slavep
     // inicializacion de shared memory y semáforos
     if ((*shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE)) == NULL)
     {
-        closeAllThings(wFiles, rFiles, output, NULL, slavepids, 0);
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids, NULL);
         exit(1);
     }
 
     if (createSharedMemory(*shmManagerAdt) == -1)
     {
-        closeAllThings(wFiles, rFiles, output, *shmManagerAdt, slavepids, 0);
+        closeAllThings(wFiles, rFiles, output, *shmManagerAdt, slavepids, NULL);
         exit(1);
     }
 
@@ -234,7 +232,7 @@ initiateShmAndSemaphore(FILE *wFiles[], FILE *rFiles[], FILE *output, int slavep
     if (*semVistaReadyToRead == SEM_FAILED)
     {
         perror("Error with Vista's opening of the Semaphore");
-        closeAllThings(wFiles, rFiles, output, *shmManagerAdt, slavepids, 1);
+        closeAllThings(wFiles, rFiles, output, *shmManagerAdt, slavepids, *semVistaReadyToRead);
         exit(1);
     }
 }
@@ -329,7 +327,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
         if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
         {
             perror("Select Error");
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
             exit(1);
         }
 
@@ -356,7 +354,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
             if (stat(argv[writtenFiles], &statbuf) == -1)
             {
                 perror("Error in reading file");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
                 exit(1);
             }
             //si es un regular file, hacemos lo que tenemos que hacer
@@ -366,7 +364,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
                 if (printValue == 0)
                 {
                     perror("Error in writing in pipe");
-                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
                     exit(1);
                 }
                 slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
@@ -385,7 +383,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
             if (fgets(s, NAME_MAX + MD5_SIZE, rFiles[readSlave]) == NULL)
             {
                 perror("Error in reading from pipe");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
                 exit(1);
             }
 
@@ -393,7 +391,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
             if (snprintf(pid, PID_SIZE, "Slave PID:%d", slavepids[readSlave]) < 0)
             {
                 perror("Error in creating slave pid string");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
                 exit(1);
             }
             strncat(s, pid, PID_SIZE);
@@ -401,7 +399,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
 
             if (sendMessageToShmAndOutput(shmManagerAdt, output, s, readFiles >= argc, semVistaReadyToRead) == -1)
             {
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
                 exit(1);
             }
 
@@ -416,7 +414,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
         char *noFilesMsg = "No files were found!";
         if (sendMessageToShmAndOutput(shmManagerAdt, output, noFilesMsg, 1, semVistaReadyToRead) == -1)
         {
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
             exit(1);
         }
     }
@@ -449,12 +447,11 @@ void closeFile(FILE *file)
     if (fclose(file) == EOF)
     {
         perror("Error in closing file");
-        exit(1);
     }
 }
 
 void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[],
-                    int semOpened)
+                    sem_t* semVistaReadyToRead)
 {
     if (wFiles != NULL && rFiles != NULL)
     {
@@ -473,8 +470,9 @@ void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT 
     {
         waitForSlaves(slavepids);
     }
-    if (semOpened)
+    if (semVistaReadyToRead!=NULL)
     {
         sem_unlink(SEMAPHORE_NAME);
+        sem_close(semVistaReadyToRead);
     }
 }
