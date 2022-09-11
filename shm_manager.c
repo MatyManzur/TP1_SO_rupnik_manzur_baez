@@ -18,6 +18,10 @@ typedef struct shmManagerCDT
 
 ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
 {
+    if(CHARACTER_SHOWING_CONTINUATION=='\0')
+    {
+      return NULL;
+    }
     ShmManagerADT adt;
     if ((adt = calloc(1, sizeof(struct shmManagerCDT))) == NULL)
     {
