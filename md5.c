@@ -24,6 +24,8 @@
 
 #define RESULT_FILE_NAME "Resultados.txt"
 
+#define WAIT_FOR_VISTA_TIMEOUT 2
+
 #define GOING_PIPE(slave) pipefds[2*(slave)]
 #define RETURNING_PIPE(slave) pipefds[2*(slave)+1]
 
@@ -37,11 +39,21 @@
 
 int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[]);
 
-int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE *writeFiles[], const int slaveReady[]);
+void closePipes(FILE *wFiles[], FILE *rFiles[]);
 
 void waitForSlaves(int slavepids[]);
 
-void closePipes(FILE *wFiles[], FILE *rFiles[]);
+void
+initiateShmAndSemaphore(FILE *wFiles[], FILE *rFiles[], FILE *output, int slavepids[], ShmManagerADT *shmManagerAdt,
+                        sem_t **semVistaReadyToRead);
+
+int resetWriteReadFds(fd_set *writeFds, fd_set *readFds, FILE *writeFiles[], FILE *readFiles[], const int slaveReady[]);
+
+int sendMessageToShmAndOutput(ShmManagerADT shmManagerAdt, FILE *output, char *s, int lastMessage,
+                              sem_t *semVistaReadyToRead);
+
+void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], FILE *rFiles[], FILE *output,
+                                       ShmManagerADT shmManagerAdt, int slavepids[], sem_t *semVistaReadyToRead);
 
 FILE *createFile(char *name);
 
@@ -86,213 +98,23 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // inicializacion de shared memory y semáforos
+    //Creamos la shared memory y el semáforo
     ShmManagerADT shmManagerAdt;
-    if ((shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE)) == NULL)
-    {
-        closeAllThings(wFiles, rFiles, output, NULL, slavepids, 0);
-        exit(1);
-    }
+    sem_t *semVistaReadyToRead;
+    initiateShmAndSemaphore(wFiles, rFiles, output, slavepids, &shmManagerAdt, &semVistaReadyToRead);
 
-    if (createSharedMemory(shmManagerAdt) == -1)
-    {
-        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 0);
-        exit(1);
-    }
-
-    sem_t *semVistaReadyToRead = sem_open(SEMAPHORE_NAME, O_CREAT, O_CREAT | O_RDWR, INITIAL_SEMAPHORE_VALUE);
-    if (semVistaReadyToRead == SEM_FAILED)
-    {
-        perror("Error with Vista's opening of the Semaphore");
-        closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-        exit(1);
-    }
-
+    //Mandamos la info necesaria para que se conecte el vista por stdout
     printf("%s\n%d\n%s\n", SHM_NAME, SHM_SIZE, SEMAPHORE_NAME);
 
-    sleep(2);
+    sleep(WAIT_FOR_VISTA_TIMEOUT); //Esperamos 2 segundos a que aparezca el vista
 
-    // SELECT
-
-    //en argv[1,2,...] tenemos los nombres de los archivos
-
-    //slaveReady[i] == 1 si el slave i está listo para recibir otro archivo, o será == 0 si está ocupado
-    int slaveReady[SLAVE_COUNT];
-    for (int i = 0; i < SLAVE_COUNT; i++)
-    {
-        slaveReady[i] = 1;    // Inicialmente, todos los slaves pueden recibir archivos, estan disponibles (=1)
-    }
-
-    //contamos la cantidad de archivos pasados a los slaves (writtenFiles) o salteados por ser directorios
-    //y la cantidad de md5 recibidos de los slaves (readFiles) o salteados por ser directorios
-    int writtenFiles = 1, readFiles = 1;
-    //(comienzan en 1 pues argc está contando un argumento de más con el nombre del programa)
-
-    int messagesSentToShm = 0;
-
-    //iteramos por los archivos recibidos por argumento
-    while (readFiles < argc) // no vamos a parar hasta haber recibido los md5 de todos los archivos no salteados
-    {
-        // vamos a buscar un slave disponible para escribir, y uno que ya esté listo para leer el resultado
-        int readSlave = -1, writeSlave = -1;
-
-        //creamos los sets que usará select() para monitorear los pipes que ya tienen contenido para leer, y los disponibles para escribir
-        fd_set readFds;
-        fd_set writeFds;
-
-        //nfds --> fd más alto de los que estamos usando + 1 (pedido por select)
-        int nfds = resetReadWriteFds(&readFds, &writeFds, rFiles, wFiles, slaveReady);
-        //además resetReadFds() deja en los sets readFds y writeFds, los fd que queremos que select() se fije si estan disponibles
-
-        //En teoría, los pipes de ida deberían estar vacíos si sabemos que están listos para escribir, por lo que select() no va a filtrar nada de este
-        //set probablemente. Sin embargo, lo ponemos para que select() pueda continuar si todavía no hay nada para leer, pues hay cosas para escribir.
-
-        //si ya no hay cosas para escribir, entonces sí debería quedarse esperando el select a recibir algo para leer,
-        if (writtenFiles >= argc)
-        {
-            FD_ZERO(&writeFds); //por lo tanto vaciamos el writeFds set
-        }
-
-        //select esperará que haya por lo menos un pipe disponible para leer o escribir, y devolverá quienes son cuando los encuentre
-        if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
-        {
-            perror("Select Error");
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-            exit(1);
-        }
-
-        for (int i = 0; i < SLAVE_COUNT && (readSlave == -1 || writeSlave == -1); i++)
-        {
-            if (writeSlave < 0 && writtenFiles < argc && FD_ISSET(fileno(wFiles[i]), &writeFds))
-            {
-                writeSlave = i;
-            }
-            if (readSlave < 0 && FD_ISSET(fileno(rFiles[i]), &readFds))
-            {
-                readSlave = i;
-            }
-        }
-
-        //si pasamos por todos y siguen valiendo -1 es porque no había ninguno disponible
-        if (writeSlave >= 0)
-        {
-            //Obtenemos informacion del archivo a procesar
-            struct stat statbuf;
-            if (stat(argv[writtenFiles], &statbuf) == -1)
-            {
-                perror("Error in reading file");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                exit(1);
-            }
-            //si es un regular file, hacemos lo que tenemos que hacer
-            if (S_ISREG(statbuf.st_mode))
-            {
-                size_t printValue = fwrite(argv[writtenFiles], 1, strlen(argv[writtenFiles]) + 1, wFiles[writeSlave]);
-                if (printValue == 0)
-                {
-                    perror("Error in writing in pipe");
-                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                    exit(1);
-                }
-                slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
-            } else //si no es un reg file (directorio, etc.), md5sum no anda => lo salteamos
-            {
-                readFiles++; //incrementamos readFiles porque sino nos va a faltar uno en la cuenta
-            }
-            writtenFiles++; //sea directorio o no, aumentamos el writtenFiles (ya sea porque lo enviamos a un slave, o porque lo salteamos)
-        }
-
-        if (readSlave >= 0)
-        {
-            //Leemos del pipe de uno de los slaves que haya terminado
-            char s[BUFFER_SIZE];
-            char pid[PID_SIZE];
-            if (fgets(s, NAME_MAX + MD5_SIZE, rFiles[readSlave]) == NULL)
-            {
-                perror("Error in reading from pipe");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                exit(1);
-            }
-            //Le agregamos quién fue, y lo escribimos en la shm y el archivo resultado
-            if (snprintf(pid, PID_SIZE, "Slave PID:%d", slavepids[readSlave]) < 0)
-            {
-                perror("Error in creating slave pid string");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                exit(1);
-            }
-            strncat(s, pid, PID_SIZE);
-            if (writeMessage(shmManagerAdt, s, ++readFiles >= argc) < 0)
-            {
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                exit(1);
-            }
-            if (writeInFile(output, s) == -1)
-            {
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                exit(1);
-            }
-            messagesSentToShm++;
-            if (sem_post(semVistaReadyToRead) == -1)
-            {
-                perror("Error in posting to semaphore");
-                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-                exit(1);
-            }
-            slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
-        }
-    }
-
-    //si no se mando ningun mensaje a la shm (por ej.: eran todos directorios), le avisamos al vista para que no se quede esperando
-    if (messagesSentToShm == 0)
-    {
-        char *noFilesMsg = "No files were found!";
-        if (writeMessage(shmManagerAdt, noFilesMsg, 1) < 0)
-        {
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-            exit(1);
-        }
-        if (writeInFile(output, noFilesMsg) == -1)
-        {
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-            exit(1);
-        }
-        if (sem_post(semVistaReadyToRead) == -1)
-        {
-            perror("Error in posting to semaphore");
-            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
-            exit(1);
-        }
-    }
+    //Nos comunicamos con los slaves, y lo que devuelven lo escribimos en la shm
+    writeToReadFromSlavesAndSendToShm(argc, argv, wFiles, rFiles, output, shmManagerAdt, slavepids,
+                                      semVistaReadyToRead);
 
     closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
 
     return 0;
-}
-
-void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[],
-                    int semOpened)
-{
-    if (wFiles != NULL && rFiles != NULL)
-    {
-        closePipes(wFiles, rFiles);
-    }
-    if (output != NULL)
-    {
-        closeFile(output);
-    }
-    if (shmManagerAdt != NULL)
-    {
-        destroySharedMemory(shmManagerAdt);
-        freeSharedMemoryManager(shmManagerAdt);
-    }
-    if (slavepids != NULL)
-    {
-        waitForSlaves(slavepids);
-    }
-    if (semOpened)
-    {
-        sem_unlink(SEMAPHORE_NAME);
-    }
 }
 
 int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FILE *rFiles[])
@@ -364,34 +186,6 @@ int initiatePipesAndSlaves(int pipefds[][2], int slavepids[], FILE *wFiles[], FI
     return 0;
 }
 
-//Agrega los fds de los pipes que correspondan en los readFds y writeFds sets, tambien calcula el nfds y lo devuelve
-//Agregará los no ready a readFds, y los ready a writeFds
-int resetReadWriteFds(fd_set *readFds, fd_set *writeFds, FILE *readFiles[], FILE *writeFiles[], const int slaveReady[])
-{
-    int nfds = 0;
-    FD_ZERO(readFds);
-    FD_ZERO(writeFds);
-    for (int i = 0; i < SLAVE_COUNT; ++i)
-    {
-        int fd;
-        fd_set *correspondingSet;
-        if (slaveReady[i])
-        {
-            fd = fileno(writeFiles[i]);
-            correspondingSet = writeFds;
-        } else
-        {
-            fd = fileno(readFiles[i]);
-            correspondingSet = readFds;
-        }
-
-        FD_SET(fd, correspondingSet);
-        if (fd >= nfds)
-            nfds = fd;
-    }
-    return nfds + 1;
-}
-
 void closePipes(FILE *wFiles[], FILE *rFiles[])
 {
     for (int i = 0; i < SLAVE_COUNT; i++)
@@ -419,6 +213,214 @@ void waitForSlaves(int slavepids[])
     }
 }
 
+void
+initiateShmAndSemaphore(FILE *wFiles[], FILE *rFiles[], FILE *output, int slavepids[], ShmManagerADT *shmManagerAdt,
+                        sem_t **semVistaReadyToRead)
+{
+    // inicializacion de shared memory y semáforos
+    if ((*shmManagerAdt = newSharedMemoryManager(SHM_NAME, SHM_SIZE)) == NULL)
+    {
+        closeAllThings(wFiles, rFiles, output, NULL, slavepids, 0);
+        exit(1);
+    }
+
+    if (createSharedMemory(*shmManagerAdt) == -1)
+    {
+        closeAllThings(wFiles, rFiles, output, *shmManagerAdt, slavepids, 0);
+        exit(1);
+    }
+
+    *semVistaReadyToRead = sem_open(SEMAPHORE_NAME, O_CREAT, O_CREAT | O_RDWR, INITIAL_SEMAPHORE_VALUE);
+    if (*semVistaReadyToRead == SEM_FAILED)
+    {
+        perror("Error with Vista's opening of the Semaphore");
+        closeAllThings(wFiles, rFiles, output, *shmManagerAdt, slavepids, 1);
+        exit(1);
+    }
+}
+
+//Agrega los fds de los pipes que correspondan en los readFds y writeFds sets, tambien calcula el nfds y lo devuelve
+//Agregará los no ready a readFds, y los ready a writeFds
+int resetWriteReadFds(fd_set *writeFds, fd_set *readFds, FILE *writeFiles[], FILE *readFiles[], const int slaveReady[])
+{
+    int nfds = 0;
+    FD_ZERO(readFds);
+    FD_ZERO(writeFds);
+    for (int i = 0; i < SLAVE_COUNT; ++i)
+    {
+        int fd;
+        fd_set *correspondingSet;
+        if (slaveReady[i])
+        {
+            fd = fileno(writeFiles[i]);
+            correspondingSet = writeFds;
+        } else
+        {
+            fd = fileno(readFiles[i]);
+            correspondingSet = readFds;
+        }
+
+        FD_SET(fd, correspondingSet);
+        if (fd >= nfds)
+            nfds = fd;
+    }
+    return nfds + 1;
+}
+
+int sendMessageToShmAndOutput(ShmManagerADT shmManagerAdt, FILE *output, char *s, int lastMessage,
+                              sem_t *semVistaReadyToRead)
+{
+    if (writeMessage(shmManagerAdt, s, lastMessage) < 0)
+    {
+        return -1;
+    }
+    if (writeInFile(output, s) == -1)
+    {
+        return -1;
+    }
+    if (sem_post(semVistaReadyToRead) == -1)
+    {
+        perror("Error in posting to semaphore");
+        return -1;
+    }
+    return 0;
+}
+
+void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], FILE *rFiles[], FILE *output,
+                                       ShmManagerADT shmManagerAdt, int slavepids[], sem_t *semVistaReadyToRead)
+{
+    //en argv[1,2,...] tenemos los nombres de los archivos
+
+    //slaveReady[i] == 1 si el slave i está listo para recibir otro archivo, o será == 0 si está ocupado
+    int slaveReady[SLAVE_COUNT];
+    for (int i = 0; i < SLAVE_COUNT; i++)
+    {
+        slaveReady[i] = 1;    // Inicialmente, todos los slaves pueden recibir archivos, estan disponibles (=1)
+    }
+
+    //contamos la cantidad de archivos pasados a los slaves (writtenFiles) o salteados por ser directorios
+    //y la cantidad de md5 recibidos de los slaves (readFiles) o salteados por ser directorios
+    int writtenFiles = 1, readFiles = 1;
+    //(comienzan en 1 pues argc está contando un argumento de más con el nombre del programa)
+
+    int messagesSentToShm = 0;
+
+    //iteramos por los archivos recibidos por argumento
+    while (readFiles < argc) // no vamos a parar hasta haber recibido los md5 de todos los archivos no salteados
+    {
+        //creamos los sets que usará select() para monitorear los pipes que ya tienen contenido para leer, y los disponibles para escribir
+        fd_set readFds;
+        fd_set writeFds;
+
+        //nfds --> fd más alto de los que estamos usando + 1 (pedido por select)
+        int nfds = resetWriteReadFds(&writeFds, &readFds, wFiles, rFiles, slaveReady);
+        //además resetReadFds() deja en los sets readFds y writeFds, los fd que queremos que select() se fije si estan disponibles
+
+        //En teoría, los pipes de ida deberían estar vacíos si sabemos que están listos para escribir, por lo que select() no va a filtrar nada de este
+        //set probablemente. Sin embargo, lo ponemos para que select() pueda continuar si todavía no hay nada para leer, pues hay cosas para escribir.
+
+        //si ya no hay cosas para escribir, entonces sí debería quedarse esperando el select a recibir algo para leer,
+        if (writtenFiles >= argc)
+        {
+            FD_ZERO(&writeFds); //por lo tanto vaciamos el writeFds set
+        }
+
+        //select esperará que haya por lo menos un pipe disponible para leer o escribir, y devolverá quienes son cuando los encuentre
+        if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
+        {
+            perror("Select Error");
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+            exit(1);
+        }
+
+        // vamos a buscar un slave disponible para escribir, y uno que ya esté listo para leer el resultado
+        int readSlave = -1, writeSlave = -1;
+
+        for (int i = 0; i < SLAVE_COUNT && (readSlave == -1 || writeSlave == -1); i++)
+        {
+            if (writeSlave < 0 && writtenFiles < argc && FD_ISSET(fileno(wFiles[i]), &writeFds))
+            {
+                writeSlave = i;
+            }
+            if (readSlave < 0 && FD_ISSET(fileno(rFiles[i]), &readFds))
+            {
+                readSlave = i;
+            }
+        }
+
+        //si pasamos por todos y siguen valiendo -1 es porque no había ninguno disponible
+        if (writeSlave >= 0)
+        {
+            //Obtenemos informacion del archivo a procesar
+            struct stat statbuf;
+            if (stat(argv[writtenFiles], &statbuf) == -1)
+            {
+                perror("Error in reading file");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                exit(1);
+            }
+            //si es un regular file, hacemos lo que tenemos que hacer
+            if (S_ISREG(statbuf.st_mode))
+            {
+                size_t printValue = fwrite(argv[writtenFiles], 1, strlen(argv[writtenFiles]) + 1, wFiles[writeSlave]);
+                if (printValue == 0)
+                {
+                    perror("Error in writing in pipe");
+                    closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                    exit(1);
+                }
+                slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
+            } else //si no es un reg file (directorio, etc.), md5sum no anda => lo salteamos
+            {
+                readFiles++; //incrementamos readFiles porque sino nos va a faltar uno en la cuenta
+            }
+            writtenFiles++; //sea directorio o no, aumentamos el writtenFiles (ya sea porque lo enviamos a un slave, o porque lo salteamos)
+        }
+
+        if (readSlave >= 0)
+        {
+            //Leemos del pipe de uno de los slaves que haya terminado
+            char s[BUFFER_SIZE];
+            char pid[PID_SIZE];
+            if (fgets(s, NAME_MAX + MD5_SIZE, rFiles[readSlave]) == NULL)
+            {
+                perror("Error in reading from pipe");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                exit(1);
+            }
+
+            //Le agregamos quién fue, y lo escribimos en la shm y el archivo resultado
+            if (snprintf(pid, PID_SIZE, "Slave PID:%d", slavepids[readSlave]) < 0)
+            {
+                perror("Error in creating slave pid string");
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                exit(1);
+            }
+            strncat(s, pid, PID_SIZE);
+            readFiles++;
+
+            if (sendMessageToShmAndOutput(shmManagerAdt, output, s, readFiles >= argc, semVistaReadyToRead) == -1)
+            {
+                closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+                exit(1);
+            }
+
+            messagesSentToShm++;
+            slaveReady[readSlave] = 1; //como ya leímos lo que devolvió, ahora está libre (=1)
+        }
+    }
+
+    //si no se mando ningun mensaje a la shm (por ej.: eran todos directorios), le avisamos al vista para que no se quede esperando
+    if (messagesSentToShm == 0)
+    {
+        char *noFilesMsg = "No files were found!";
+        if (sendMessageToShmAndOutput(shmManagerAdt, output, noFilesMsg, 1, semVistaReadyToRead) == -1)
+        {
+            closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, 1);
+            exit(1);
+        }
+    }
+}
 
 FILE *createFile(char *name)
 {
@@ -448,5 +450,31 @@ void closeFile(FILE *file)
     {
         perror("Error in closing file");
         exit(1);
+    }
+}
+
+void closeAllThings(FILE *wFiles[], FILE *rFiles[], FILE *output, ShmManagerADT shmManagerAdt, int slavepids[],
+                    int semOpened)
+{
+    if (wFiles != NULL && rFiles != NULL)
+    {
+        closePipes(wFiles, rFiles);
+    }
+    if (output != NULL)
+    {
+        closeFile(output);
+    }
+    if (shmManagerAdt != NULL)
+    {
+        destroySharedMemory(shmManagerAdt);
+        freeSharedMemoryManager(shmManagerAdt);
+    }
+    if (slavepids != NULL)
+    {
+        waitForSlaves(slavepids);
+    }
+    if (semOpened)
+    {
+        sem_unlink(SEMAPHORE_NAME);
     }
 }

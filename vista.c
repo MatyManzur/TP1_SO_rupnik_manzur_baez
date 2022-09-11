@@ -23,6 +23,11 @@
 
 int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphoreName);
 
+unsigned char getInfoForReading(int argc, char *argv[], char **shmName, ssize_t *shmSize, char **semaphoreName);
+
+void
+initiateShmAndSemaphore(ShmManagerADT *shmManagerAdt, sem_t **semVistaReadyToRead, char *shmName, char *semaphoreName,
+                        ssize_t shmSize, unsigned char pipeWasUsed);
 
 void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
                     ShmManagerADT shmManagerAdt);
@@ -34,58 +39,12 @@ int main(int argc, char *argv[])
     char *semaphoreName = NULL;
     unsigned char pipeWasUsed = 0;
 
-    if (argc == PIPE_WAS_USED)
-    {
-        //Esta función leerá de stdin los parámetros necesarios
-        if (informationInCaseOfPipe(&shmName, &shmSize, &semaphoreName) == -1)
-        {
-            closeAllThings(1, shmName, semaphoreName, NULL);
-            exit(1);
-        }
-        pipeWasUsed = 1;
-    } else if (argc == RUN_FROM_CONSOLE)
-    {
-        //si se pasaron los parametros a mano, los leemos
-        shmName = argv[1];
+    pipeWasUsed = getInfoForReading(argc, argv, &shmName, &shmSize, &semaphoreName);
 
-        char *endPtr;
-        shmSize = strtol(argv[2], &endPtr, 10);
-        if ((endPtr == argv[2]) || (*endPtr != '\0'))
-        {
-            fprintf(stderr, "Error in entering of parameters. 2nd argument must be integer\n");
-            exit(1);
-        }
-
-        semaphoreName = argv[3];
-
-    } else
-    {
-        fprintf(stderr, "Error in entering of parameters\n");
-        exit(1);
-    }
-
-    //Nos conectamos a la shared memory
+    //Nos conectamos a la shared memory y semáforo
     ShmManagerADT shmManagerAdt;
-    if ((shmManagerAdt = newSharedMemoryManager(shmName, shmSize)) == NULL)
-    {
-        FREE_NAMES(pipeWasUsed, shmName, semaphoreName)
-        exit(1);
-    }
-
-    if (connectToSharedMemory(shmManagerAdt) == -1)
-    {
-        closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
-        exit(1);
-    }
-
-    //Nos conectamos al semáforo
-    sem_t *semVistaReadyToRead = sem_open(semaphoreName, 0);
-    if (semVistaReadyToRead == SEM_FAILED)
-    {
-        perror("Error with Vista's opening of Semaphore");
-        closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
-        exit(1);
-    }
+    sem_t *semVistaReadyToRead;
+    initiateShmAndSemaphore(&shmManagerAdt, &semVistaReadyToRead, shmName, semaphoreName, shmSize, pipeWasUsed);
 
     //Leemos los mensajes de la shared memory hasta que se nos indique que fue el último
     char buffer[BUFFER_SIZE];
@@ -110,22 +69,6 @@ int main(int argc, char *argv[])
     closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt);
     return 0;
 }
-
-void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
-                    ShmManagerADT shmManagerAdt)
-{
-    if (shmManagerAdt != NULL)
-    {
-        if (disconnectFromSharedMemory(shmManagerAdt) < 0)
-        {
-            exit(1);
-        }
-        freeSharedMemoryManager(shmManagerAdt);
-    }
-
-    FREE_NAMES(pipeWasUsed, shmName, semaphoreName)
-}
-
 
 int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphoreName)
 {
@@ -158,5 +101,79 @@ int informationInCaseOfPipe(char **pshmName, ssize_t *pshmSize, char **psemaphor
     *psemaphoreName = strings[2];
 
     return 0;
+}
+
+unsigned char getInfoForReading(int argc, char *argv[], char **shmName, ssize_t *shmSize, char **semaphoreName)
+{
+    if (argc == PIPE_WAS_USED)
+    {
+        //Esta función leerá de stdin los parámetros necesarios
+        if (informationInCaseOfPipe(shmName, shmSize, semaphoreName) == -1)
+        {
+            closeAllThings(1, *shmName, *semaphoreName, NULL);
+            exit(1);
+        }
+        return 1;
+    }
+    if (argc == RUN_FROM_CONSOLE)
+    {
+        //si se pasaron los parametros a mano, los leemos
+        *shmName = argv[1];
+
+        char *endPtr;
+        *shmSize = strtol(argv[2], &endPtr, 10);
+        if ((endPtr == argv[2]) || (*endPtr != '\0'))
+        {
+            fprintf(stderr, "Error in entering of parameters. 2nd argument must be integer\n");
+            exit(1);
+        }
+
+        *semaphoreName = argv[3];
+        return 0;
+    }
+
+    fprintf(stderr, "Error in entering of parameters\n");
+    exit(1);
+}
+
+void
+initiateShmAndSemaphore(ShmManagerADT *shmManagerAdt, sem_t **semVistaReadyToRead, char *shmName, char *semaphoreName,
+                        ssize_t shmSize, unsigned char pipeWasUsed)
+{
+    if ((*shmManagerAdt = newSharedMemoryManager(shmName, shmSize)) == NULL)
+    {
+        FREE_NAMES(pipeWasUsed, shmName, semaphoreName)
+        exit(1);
+    }
+
+    if (connectToSharedMemory(*shmManagerAdt) == -1)
+    {
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, *shmManagerAdt);
+        exit(1);
+    }
+
+    //Nos conectamos al semáforo
+    *semVistaReadyToRead = sem_open(semaphoreName, 0);
+    if (*semVistaReadyToRead == SEM_FAILED)
+    {
+        perror("Error with Vista's opening of Semaphore");
+        closeAllThings(pipeWasUsed, shmName, semaphoreName, *shmManagerAdt);
+        exit(1);
+    }
+}
+
+void closeAllThings(unsigned char pipeWasUsed, char *shmName, char *semaphoreName,
+                    ShmManagerADT shmManagerAdt)
+{
+    if (shmManagerAdt != NULL)
+    {
+        if (disconnectFromSharedMemory(shmManagerAdt) < 0)
+        {
+            exit(1);
+        }
+        freeSharedMemoryManager(shmManagerAdt);
+    }
+
+    FREE_NAMES(pipeWasUsed, shmName, semaphoreName)
 }
 
