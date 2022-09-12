@@ -53,7 +53,7 @@ int resetWriteReadFds(fd_set *writeFds, fd_set *readFds, FILE *writeFiles[], FIL
 int sendMessageToShmAndOutput(ShmManagerADT shmManagerAdt, FILE *output, char *s, int lastMessage,
                               sem_t *semVistaReadyToRead);
 
-void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], FILE *rFiles[], FILE *output,
+void writeToReadFromSlavesAndSendToShm(int argc, char *fileNames[], FILE *wFiles[], FILE *rFiles[], FILE *output,
                                        ShmManagerADT shmManagerAdt, int slavepids[], sem_t *semVistaReadyToRead);
 
 FILE *createFile(char *name);
@@ -292,27 +292,21 @@ int sendMessageToShmAndOutput(ShmManagerADT shmManagerAdt, FILE *output, char *s
     return 0;
 }
 
-void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], FILE *rFiles[], FILE *output,
+void writeToReadFromSlavesAndSendToShm(int argc, char *fileNames[], FILE *wFiles[], FILE *rFiles[], FILE *output,
                                        ShmManagerADT shmManagerAdt, int slavepids[], sem_t *semVistaReadyToRead)
 {
-    //en argv[1,2,...] tenemos los nombres de los archivos
-
-    //slaveReady[i] == 1 si el slave i está listo para recibir otro archivo, o será == 0 si está ocupado
     int slaveReady[SLAVE_COUNT];
     for (int i = 0; i < SLAVE_COUNT; i++)
     {
         slaveReady[i] = 1;    // Inicialmente, todos los slaves pueden recibir archivos, estan disponibles (=1)
     }
 
-    //contamos la cantidad de archivos pasados a los slaves (writtenFiles) o salteados por ser directorios
-    //y la cantidad de md5 recibidos de los slaves (readFiles) o salteados por ser directorios
     int writtenFiles = 1, readFiles = 1;
     //(comienzan en 1 pues argc está contando un argumento de más con el nombre del programa)
 
     int messagesSentToShm = 0;
 
-    //iteramos por los archivos recibidos por argumento
-    while (readFiles < argc) // no vamos a parar hasta haber recibido los md5 de todos los archivos no salteados
+    while (readFiles < argc)
     {
         //creamos los sets que usará select() para monitorear los pipes que ya tienen contenido para leer, y los disponibles para escribir
         fd_set readFds;
@@ -320,7 +314,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
 
         //nfds --> fd más alto de los que estamos usando + 1 (pedido por select)
         int nfds = resetWriteReadFds(&writeFds, &readFds, wFiles, rFiles, slaveReady);
-        //además resetReadFds() deja en los sets readFds y writeFds, los fd que queremos que select() se fije si estan disponibles
+        //además deja en los sets readFds y writeFds, los fd que usará select
 
         //En teoría, los pipes de ida deberían estar vacíos si sabemos que están listos para escribir, por lo que select() no va a filtrar nada de este
         //set probablemente. Sin embargo, lo ponemos para que select() pueda continuar si todavía no hay nada para leer, pues hay cosas para escribir.
@@ -331,7 +325,6 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
             FD_ZERO(&writeFds); //por lo tanto vaciamos el writeFds set
         }
 
-        //select esperará que haya por lo menos un pipe disponible para leer o escribir, y devolverá quienes son cuando los encuentre
         if (select(nfds, &readFds, &writeFds, NULL, NULL) == -1)
         {
             perror("Select Error");
@@ -359,16 +352,16 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
         {
             //Obtenemos informacion del archivo a procesar
             struct stat statbuf;
-            if (stat(argv[writtenFiles], &statbuf) == -1)
+            if (stat(fileNames[writtenFiles], &statbuf) == -1)
             {
                 perror("Error in reading file");
                 closeAllThings(wFiles, rFiles, output, shmManagerAdt, slavepids, semVistaReadyToRead);
                 exit(1);
             }
-            //si es un regular file, hacemos lo que tenemos que hacer
+            //es un regular file
             if (S_ISREG(statbuf.st_mode))
             {
-                size_t printValue = fwrite(argv[writtenFiles], 1, strlen(argv[writtenFiles]) + 1, wFiles[writeSlave]);
+                size_t printValue = fwrite(fileNames[writtenFiles], 1, strlen(fileNames[writtenFiles]) + 1, wFiles[writeSlave]);
                 if (printValue == 0)
                 {
                     perror("Error in writing in pipe");
@@ -378,7 +371,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *argv[], FILE *wFiles[], F
                 slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
             } else //si no es un reg file (directorio, etc.), md5sum no anda => lo salteamos
             {
-                readFiles++; //incrementamos readFiles porque sino nos va a faltar uno en la cuenta
+                readFiles++; 
             }
             writtenFiles++; //sea directorio o no, aumentamos el writtenFiles (ya sea porque lo enviamos a un slave, o porque lo salteamos)
         }
