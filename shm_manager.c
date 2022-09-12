@@ -1,6 +1,7 @@
 // This is a personal academic project. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include "shm_manager.h"
+#include <string.h>
 
 #define CHECK_NULL(adt) if((adt)==NULL) { \
                               fprintf(stderr, "ADT pointer is NULL!"); \
@@ -34,7 +35,6 @@ ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
     return adt;
 }
 
-int lenstrcpy(char dest[], const char source[]);
 
 int checkIfConnected(ShmManagerADT shmManagerAdt);
 
@@ -144,12 +144,18 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int lastMessage)
         fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
-    shmManagerAdt->memPtr += (lenstrcpy(shmManagerAdt->memPtr, message) + 1);
-    if (shmManagerAdt->memPtr > shmManagerAdt->initialMemPtr + shmManagerAdt->shmSize)
+    
+    int length = strlen(message)+1;
+
+    if (shmManagerAdt->memPtr + length > shmManagerAdt->initialMemPtr + shmManagerAdt->shmSize)
     {
         fprintf(stderr, "Exceeded shared memory size!");
         return -1;
     }
+
+    // se mueve una posición más (+1 del final) para poder comparar con CHARACTER_SHOWING_CONTINUATION
+    shmManagerAdt->memPtr += (snprintf(shmManagerAdt->memPtr, length, "%s", message)+1);
+    
     if (!lastMessage)
     {
         *shmManagerAdt->memPtr = CHARACTER_SHOWING_CONTINUATION;
@@ -182,18 +188,6 @@ int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length, int *la
 
     shmManagerAdt->memPtr++;
     return snprintfReturnValue;
-}
-
-int lenstrcpy(char dest[], const char source[])
-{
-    int i = 0;
-    while (source[i] != '\0')
-    {
-        dest[i] = source[i];
-        i++;
-    }
-    dest[i] = '\0';
-    return i;
 }
 
 int checkIfConnected(ShmManagerADT shmManagerAdt)
