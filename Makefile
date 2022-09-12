@@ -5,6 +5,8 @@ DEPS = shm_manager.h
 OBJS = md5.o shm_manager.o vista.o
 EXECS = md5 vista md5Slave
 
+all: $(EXECS)
+
 %.o: %.c $(DEPS)
 	$(CC) -c $< $(CFLAGS)
 
@@ -16,8 +18,6 @@ vista: vista.o shm_manager.o
 
 md5Slave:
 	$(CC) md5Slave.c -o $@ $(CFLAGS)
-
-all: $(EXECS)
 
 .PHONY: clean
 
