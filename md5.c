@@ -361,7 +361,8 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *fileNames[], FILE *wFiles
             //es un regular file
             if (S_ISREG(statbuf.st_mode))
             {
-                size_t printValue = fwrite(fileNames[writtenFiles], 1, strlen(fileNames[writtenFiles]) + 1, wFiles[writeSlave]);
+                size_t printValue = fwrite(fileNames[writtenFiles], 1, strlen(fileNames[writtenFiles]) + 1,
+                                           wFiles[writeSlave]);
                 if (printValue == 0)
                 {
                     perror("Error in writing in pipe");
@@ -371,7 +372,7 @@ void writeToReadFromSlavesAndSendToShm(int argc, char *fileNames[], FILE *wFiles
                 slaveReady[writeSlave] = 0; //como le mandamos algo para que trabaje, ahora está ocupado (=0)
             } else //si no es un reg file (directorio, etc.), md5sum no anda => lo salteamos
             {
-                readFiles++; 
+                readFiles++;
             }
             writtenFiles++; //sea directorio o no, aumentamos el writtenFiles (ya sea porque lo enviamos a un slave, o porque lo salteamos)
         }

@@ -19,9 +19,9 @@ typedef struct shmManagerCDT
 
 ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
 {
-    if(CHARACTER_SHOWING_CONTINUATION=='\0')
+    if (CHARACTER_SHOWING_CONTINUATION == '\0')
     {
-      return NULL;
+        return NULL;
     }
     ShmManagerADT adt;
     if ((adt = calloc(1, sizeof(struct shmManagerCDT))) == NULL)
@@ -144,8 +144,8 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int lastMessage)
         fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
-    
-    int length = strlen(message)+1;
+
+    int length = strlen(message) + 1;
 
     if (shmManagerAdt->memPtr + length > shmManagerAdt->initialMemPtr + shmManagerAdt->shmSize)
     {
@@ -154,8 +154,8 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int lastMessage)
     }
 
     // se mueve una posición más (+1 del final) para poder comparar con CHARACTER_SHOWING_CONTINUATION
-    shmManagerAdt->memPtr += (snprintf(shmManagerAdt->memPtr, length, "%s", message)+1);
-    
+    shmManagerAdt->memPtr += (snprintf(shmManagerAdt->memPtr, length, "%s", message) + 1);
+
     if (!lastMessage)
     {
         *shmManagerAdt->memPtr = CHARACTER_SHOWING_CONTINUATION;
