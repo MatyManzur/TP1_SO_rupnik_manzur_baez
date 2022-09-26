@@ -15,6 +15,7 @@ typedef struct shmManagerCDT
     ssize_t shmSize;
     char *initialMemPtr;
     char *memPtr;
+    int fifofd;
 } shmManagerCDT;
 
 ShmManagerADT newSharedMemoryManager(char *shmName, ssize_t shmSize)
@@ -67,6 +68,18 @@ int createSharedMemory(ShmManagerADT shmManagerAdt)
         return -1;
     }
     shmManagerAdt->memPtr = shmManagerAdt->initialMemPtr;
+
+    if(mkfifo("./fifoname", 0666) < 0)
+    {
+        perror("Error in mkfifo");
+        return -1;
+    }
+
+    if((shmManagerAdt->fifofd = open("./fifoname", O_RDWR)) < 0)
+    {
+        perror("Error in open");
+        return -1;
+    }
     return 0;
 }
 
@@ -86,6 +99,7 @@ int connectToSharedMemory(ShmManagerADT shmManagerAdt)
         return -1;
     }
     shmManagerAdt->memPtr = shmManagerAdt->initialMemPtr;
+    shmManagerAdt->fifofd = open("./fifoname", O_RDONLY);
     return 0;
 }
 
@@ -107,6 +121,7 @@ int disconnectFromSharedMemory(ShmManagerADT shmManagerAdt)
         perror("Error in closing shared memory");
         return -1;
     }
+    close(shmManagerAdt->fifofd);
     return 0;
 }
 
@@ -156,10 +171,20 @@ int writeMessage(ShmManagerADT shmManagerAdt, char *message, int lastMessage)
     // se mueve una posición más (+1 del final) para poder comparar con CHARACTER_SHOWING_CONTINUATION
     shmManagerAdt->memPtr += (snprintf(shmManagerAdt->memPtr, length, "%s", message) + 1);
 
+    if(write(shmManagerAdt->fifofd, message, length) < 0)
+    {
+        perror("Error in write");
+        return -1;
+    }
+
     if (!lastMessage)
     {
         *shmManagerAdt->memPtr = CHARACTER_SHOWING_CONTINUATION;
         shmManagerAdt->memPtr++;
+    }
+    else
+    {
+        close(shmManagerAdt->fifofd);
     }
     return 0;
 }
@@ -172,13 +197,24 @@ int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length, int *la
         fprintf(stderr, "Must be connected to a shared memory!\n");
         return -2;
     }
+    /*
     int snprintfReturnValue = snprintf(buff, length, "%s", shmManagerAdt->memPtr);
     if (snprintfReturnValue < 0)
     {
         perror("Error in reading from shm");
         return -1;
     }
+     */
 
+    int snprintfReturnValue = read(shmManagerAdt->fifofd, buff, length);
+    
+    
+    if(snprintfReturnValue==0) //eof
+    {
+        *lastMessage = 1;
+    }
+
+    /*
     shmManagerAdt->memPtr += snprintfReturnValue + 1;
 
     if (lastMessage != NULL)
@@ -187,6 +223,7 @@ int readMessage(ShmManagerADT shmManagerAdt, char *buff, ssize_t length, int *la
     }
 
     shmManagerAdt->memPtr++;
+    */
     return snprintfReturnValue;
 }
 

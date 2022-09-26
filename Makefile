@@ -22,4 +22,4 @@ md5Slave:
 .PHONY: clean
 
 clean:
-	rm -f $(OBJS) $(EXECS) Resultados.txt
+	rm -f $(OBJS) $(EXECS) Resultados.txt fifoname

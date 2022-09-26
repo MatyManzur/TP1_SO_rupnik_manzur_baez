@@ -62,7 +62,8 @@ int main(int argc, char *argv[])
             closeAllThings(pipeWasUsed, shmName, semaphoreName, shmManagerAdt, semVistaReadyToRead);
             exit(1);
         }
-        printf("%s\n", buffer);
+        if(!lastMessage)
+            printf("%s\n", buffer);
     }
 
     //Cuando ya leímos hasta el último mensaje, terminamos
